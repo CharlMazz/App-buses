@@ -514,7 +514,7 @@ export function PassengerWalletScreen({
           <li>
             <button
               type="button"
-              onClick={() => onNavigate('mapa')}
+              onClick={() => onNavigate('rutas')}
               className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-3"
             >
               <Route className="w-5 h-5" />
@@ -721,8 +721,26 @@ export function PassengerWalletScreen({
                 <div className="flex items-center gap-3">
                   <Compass className="w-5 h-5 text-[#0D9488]" />
                   <div>
-                    <p className="font-semibold text-slate-900 text-sm">Ir al Mapa y Rutas</p>
-                    <p className="text-[11px] text-slate-500">Consultar empresas y paradas BAQ</p>
+                    <p className="font-semibold text-slate-900 text-sm">Explorar Mapa en Vivo</p>
+                    <p className="text-[11px] text-slate-500">Partida, destino y buses cercanos</p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfileModal(false);
+                  onNavigate('rutas');
+                }}
+                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Route className="w-5 h-5 text-[#0D9488]" />
+                  <div>
+                    <p className="font-semibold text-slate-900 text-sm">Buscador de Rutas BAQ</p>
+                    <p className="text-[11px] text-slate-500">Consultar rutas por zona del mapa</p>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400" />

@@ -2,6 +2,7 @@ import type {
   DriverStop,
   FleetBus,
   LatLng,
+  MapBounds,
   OperationalIncident,
   RouteCardItem,
   ScreenId,
@@ -11,6 +12,7 @@ import type {
 
 export const NATIVE_DEVICE_BY_SCREEN: Record<ScreenId, 'movil' | 'tablet' | 'desktop'> = {
   mapa: 'movil',
+  rutas: 'movil',
   billetera: 'movil',
   conductor: 'tablet',
   operador: 'desktop',
@@ -297,4 +299,73 @@ export const DRIVER_ROUTE_STOPS: DriverStop[] = [
 
 export function formatCOP(amount: number): string {
   return '$' + Math.abs(amount).toLocaleString('es-CO');
+}
+
+const EARTH_RADIUS_M = 6371000;
+
+export function getDistanceMeters(a: LatLng, b: LatLng): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h =
+    sinLat * sinLat +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng;
+  return 2 * EARTH_RADIUS_M * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function pointToSegmentMeters(p: LatLng, a: LatLng, b: LatLng): number {
+  const latFactor = 111320;
+  const lngFactor = 111320 * Math.cos((p.lat * Math.PI) / 180);
+  const ax = (a.lng - p.lng) * lngFactor;
+  const ay = (a.lat - p.lat) * latFactor;
+  const bx = (b.lng - p.lng) * lngFactor;
+  const by = (b.lat - p.lat) * latFactor;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(ax, ay);
+  const t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lenSq));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return Math.hypot(cx, cy);
+}
+
+export function getDistanceToPolylineMeters(point: LatLng, path: LatLng[]): number {
+  if (path.length === 0) return Infinity;
+  if (path.length === 1) return getDistanceMeters(point, path[0]);
+  let minDist = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const d = pointToSegmentMeters(point, path[i], path[i + 1]);
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
+
+export function isPointInBounds(pt: LatLng, bounds: MapBounds): boolean {
+  return (
+    pt.lat <= bounds.north &&
+    pt.lat >= bounds.south &&
+    pt.lng <= bounds.east &&
+    pt.lng >= bounds.west
+  );
+}
+
+export function routeIntersectsBounds(
+  center: LatLng,
+  path: LatLng[],
+  bounds: MapBounds
+): boolean {
+  if (isPointInBounds(center, bounds)) return true;
+  for (const pt of path) {
+    if (isPointInBounds(pt, bounds)) return true;
+  }
+  return false;
+}
+
+export function formatDistanceLabel(meters: number): string {
+  if (!Number.isFinite(meters)) return '—';
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
 }

@@ -3,19 +3,21 @@ import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpDown,
   Bell,
   Bus,
   CheckCircle2,
-  ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Compass,
   Layers,
   Loader2,
   LocateFixed,
   MapPin,
   Maximize2,
-  Mic,
   Minus,
   Monitor,
+  Navigation,
   Plus,
   QrCode,
   Route,
@@ -32,14 +34,22 @@ import {
   type CompanyRouteItem,
 } from '../data/busRoutesCatalog';
 import {
+  BARRANQUILLA_PASSENGER_CENTER,
   INITIAL_ROUTE_CARDS,
   TRANSIT_STATIONS,
   USER_GPS_POSITION,
   formatCOP,
+  formatDistanceLabel,
+  getDistanceMeters,
+  getDistanceToPolylineMeters,
 } from '../data/barranquillaTransit';
 import {useAutocompleteSuggestions} from '../hooks/useAutocompleteSuggestions';
 import type {LatLng, RouteFilter, ScreenId, TransitStation} from '../types/transit';
-import {BarranquillaPassengerMap, type MapControlSignal} from './BarranquillaMaps';
+import {
+  BarranquillaPassengerMap,
+  type MapControlSignal,
+  type NearbyBusMarker,
+} from './BarranquillaMaps';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-sky-600',
@@ -79,33 +89,76 @@ function normalizeText(value: string): string {
     .toLowerCase();
 }
 
+function interpolateAlongPath(path: LatLng[], progress: number): LatLng {
+  if (path.length === 0) return BARRANQUILLA_PASSENGER_CENTER;
+  if (path.length === 1) return path[0];
+  const clamped = ((progress % 1) + 1) % 1;
+  const scaled = clamped * (path.length - 1);
+  const idx = Math.min(path.length - 2, Math.floor(scaled));
+  const frac = scaled - idx;
+  const a = path[idx];
+  const b = path[idx + 1];
+  return {
+    lat: a.lat + (b.lat - a.lat) * frac,
+    lng: a.lng + (b.lng - a.lng) * frac,
+  };
+}
+
+interface PlacePoint {
+  name: string;
+  address: string;
+  position: LatLng;
+}
+
 interface PassengerMapScreenProps {
   balance: number;
+  userPosition: LatLng;
+  initialFocusRoute?: CompanyRouteItem | null;
+  onClearInitialFocusRoute?: () => void;
+  onUpdateUserPosition: (pos: LatLng) => void;
   onNavigate: (screen: ScreenId) => void;
   onReportIncident: (title: string, description: string) => void;
 }
 
+const RADIUS_OPTIONS: Array<{label: string; value: number | null}> = [
+  {label: '500 m', value: 500},
+  {label: '1 km', value: 1000},
+  {label: '2 km', value: 2000},
+  {label: 'Todas', value: null},
+];
+
 export function PassengerMapScreen({
   balance,
+  userPosition,
+  initialFocusRoute,
+  onClearInitialFocusRoute,
+  onUpdateUserPosition,
   onNavigate,
   onReportIncident,
 }: PassengerMapScreenProps) {
   const placesLib = useMapsLibrary('places');
-  const searchBoxRef = useRef<HTMLDivElement | null>(null);
+  const tripCardRef = useRef<HTMLDivElement | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [selectedDestination, setSelectedDestination] = useState<{
-    name: string;
-    address: string;
-    position: LatLng;
-  } | null>(null);
+  // Origin ("Punto de partida") & Destination ("Destino") state
+  const [originQuery, setOriginQuery] = useState('Mi ubicación actual (GPS)');
+  const [originMarker, setOriginMarker] = useState<PlacePoint | null>(null);
+  const [destQuery, setDestQuery] = useState('');
+  const [selectedDestination, setSelectedDestination] = useState<PlacePoint | null>(null);
+  const [activeField, setActiveField] = useState<'origin' | 'destination' | null>(null);
+  const [tripCardCollapsed, setTripCardCollapsed] = useState(false);
   const [isResolvingPlace, setIsResolvingPlace] = useState(false);
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
 
-  const [routeFilter, setRouteFilter] = useState<RouteFilter>('all');
+  // Real-time nearby route & bus filters
+  const [radiusFilter, setRadiusFilter] = useState<number | null>(1000);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
-  const [routeSearchFilter, setRouteSearchFilter] = useState<string>('');
-  const [selectedCompanyRoute, setSelectedCompanyRoute] = useState<CompanyRouteItem | null>(null);
+  const [nearbyFilterText, setNearbyFilterText] = useState<string>('');
+  const [onlyToDestination, setOnlyToDestination] = useState<boolean>(false);
+  const [routeFilter, setRouteFilter] = useState<RouteFilter>('all');
+  const [selectedCompanyRoute, setSelectedCompanyRoute] = useState<CompanyRouteItem | null>(
+    initialFocusRoute ?? null
+  );
+
   const [showTrafficLayer, setShowTrafficLayer] = useState(false);
   const [showCorridors, setShowCorridors] = useState(true);
   const [sheetExpanded, setSheetExpanded] = useState(false);
@@ -121,124 +174,40 @@ export function PassengerMapScreen({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [mapSignal, setMapSignal] = useState<MapControlSignal | null>(null);
   const [zoomState, setZoomState] = useState<{zoom: number; isAtDefault: boolean}>({
-    zoom: 16,
+    zoom: 15,
     isAtDefault: true,
   });
+
+  const autocompleteQuery =
+    activeField === 'origin'
+      ? originQuery === 'Mi ubicación actual (GPS)'
+        ? ''
+        : originQuery
+      : activeField === 'destination'
+      ? destQuery
+      : '';
 
   const {
     suggestions: placeSuggestions,
     isLoading: isSuggestionsLoading,
     error: suggestionsError,
     resetSession,
-  } = useAutocompleteSuggestions(searchQuery, dropdownOpen);
+  } = useAutocompleteSuggestions(autocompleteQuery, activeField !== null);
+
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = window.setTimeout(() => setToastMsg(null), 2800);
+    return () => window.clearTimeout(t);
+  }, [toastMsg]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchBoxRef.current &&
-        !searchBoxRef.current.contains(event.target as Node)
-      ) {
-        setDropdownOpen(false);
+      if (tripCardRef.current && !tripCardRef.current.contains(event.target as Node)) {
+        setActiveField(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Subtle live bus telemetry movement along Barranquilla corridors
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setTick((t) => (t + 1) % 24);
-    }, 2500);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const busT01Position: LatLng = useMemo(() => {
-    const offset = Math.sin(tick * 0.28) * 0.00055;
-    return {lat: 10.9946 + offset, lng: -74.8072 - offset * 0.45};
-  }, [tick]);
-
-  const busA12Position: LatLng = useMemo(() => {
-    const offset = Math.cos(tick * 0.25) * 0.0005;
-    return {lat: 10.9918 + offset * 0.35, lng: -74.8091 + offset};
-  }, [tick]);
-
-  const showToast = useCallback((msg: string) => {
-    setToastMsg(msg);
-  }, []);
-
-  useEffect(() => {
-    if (!toastMsg) return;
-    const t = window.setTimeout(() => setToastMsg(null), 2600);
-    return () => window.clearTimeout(t);
-  }, [toastMsg]);
-
-  const matchingStations = useMemo(() => {
-    const q = normalizeText(searchQuery.trim());
-    if (q.length < 2) return [];
-    return TRANSIT_STATIONS.filter(
-      (st) =>
-        normalizeText(st.name).includes(q) || normalizeText(st.subtitle).includes(q)
-    );
-  }, [searchQuery]);
-
-  const matchingTopBarRoutes = useMemo(() => {
-    const q = normalizeText(searchQuery.trim());
-    if (q.length < 2) return [];
-    return COMPANY_BUS_ROUTES.filter(
-      (r) =>
-        normalizeText(r.company).includes(q) ||
-        normalizeText(r.code).includes(q) ||
-        normalizeText(r.description).includes(q) ||
-        normalizeText(r.corridor).includes(q)
-    ).slice(0, 6);
-  }, [searchQuery]);
-
-  const filteredRoutes = useMemo(() => {
-    if (selectedCompany !== 'all') return [];
-    const q = normalizeText((routeSearchFilter || searchQuery).trim());
-    if (
-      !routeSearchFilter.trim() &&
-      selectedDestination &&
-      normalizeText(searchQuery.trim()) === normalizeText(selectedDestination.name)
-    ) {
-      return INITIAL_ROUTE_CARDS.filter(
-        (r) => routeFilter === 'all' || r.category === routeFilter
-      );
-    }
-    return INITIAL_ROUTE_CARDS.filter((r) => {
-      const matchesCat = routeFilter === 'all' || r.category === routeFilter;
-      const matchesSearch =
-        !q ||
-        normalizeText(r.code).includes(q) ||
-        normalizeText(r.name).includes(q) ||
-        normalizeText(r.corridor).includes(q) ||
-        normalizeText(r.busId).includes(q);
-      return matchesCat && matchesSearch;
-    });
-  }, [routeFilter, searchQuery, routeSearchFilter, selectedCompany, selectedDestination]);
-
-  const filteredCompanyRoutes = useMemo(() => {
-    if (routeFilter !== 'all' && selectedCompany === 'all' && !routeSearchFilter.trim()) {
-      return [];
-    }
-    const q = normalizeText(routeSearchFilter.trim());
-    return COMPANY_BUS_ROUTES.filter((r) => {
-      const matchesCompany =
-        selectedCompany === 'all' || r.company === selectedCompany;
-      const matchesQuery =
-        !q ||
-        normalizeText(r.company).includes(q) ||
-        normalizeText(r.code).includes(q) ||
-        normalizeText(r.description).includes(q) ||
-        normalizeText(r.corridor).includes(q);
-      return matchesCompany && matchesQuery;
-    });
-  }, [routeFilter, selectedCompany, routeSearchFilter]);
-
-  const handleCameraSync = useCallback((zoom: number, isAtDefault: boolean) => {
-    setZoomState({zoom, isAtDefault});
   }, []);
 
   const triggerSignal = useCallback(
@@ -248,69 +217,224 @@ export function PassengerMapScreen({
     []
   );
 
-  const handleCenterGPS = () => {
-    triggerSignal('centerUser', USER_GPS_POSITION, 16);
-    showToast('Centrado en: Cra 46 con Calle 74 (Barranquilla)');
-  };
+  // Sync incoming route handoff from Rutas screen
+  useEffect(() => {
+    if (!initialFocusRoute) return;
+    setSelectedCompanyRoute(initialFocusRoute);
+    setRadiusFilter(null);
+    setSheetExpanded(true);
+    triggerSignal('focus', initialFocusRoute.center, 14);
+    setToastMsg(`Explorando ${initialFocusRoute.company} · ${initialFocusRoute.code}`);
+    onClearInitialFocusRoute?.();
+  }, [initialFocusRoute, onClearInitialFocusRoute, triggerSignal]);
 
-  const handleToggleLayers = () => {
-    setShowTrafficLayer((prev) => {
-      const next = !prev;
-      showToast(
-        next
-          ? 'Capa de tráfico en vivo activada en Barranquilla'
-          : 'Capa de corredores troncales actualizada'
+  // Real-time bus telemetry ticker
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setTick((t) => (t + 1) % 60);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const busT01Position: LatLng = useMemo(() => {
+    const offset = Math.sin(tick * 0.28) * 0.00075;
+    return {lat: 10.9946 + offset, lng: -74.8072 - offset * 0.45};
+  }, [tick]);
+
+  const busA12Position: LatLng = useMemo(() => {
+    const offset = Math.cos(tick * 0.25) * 0.0007;
+    return {lat: 10.9918 + offset * 0.35, lng: -74.8091 + offset};
+  }, [tick]);
+
+  const activeOrigin = originMarker?.position ?? userPosition;
+
+  // Locate user via browser Geolocation API (with safe Barranquilla bounds check)
+  const handleLocateUser = useCallback(() => {
+    setOriginMarker(null);
+    setOriginQuery('Mi ubicación actual (GPS)');
+    setActiveField(null);
+
+    if (!navigator.geolocation) {
+      onUpdateUserPosition(USER_GPS_POSITION);
+      triggerSignal('centerUser', USER_GPS_POSITION, 16);
+      setToastMsg('Ubicación fijada en Cra 46 con Calle 74 (Barranquilla)');
+      return;
+    }
+
+    setIsLocatingUser(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocatingUser(false);
+        const realPos: LatLng = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        const distFromBaq = getDistanceMeters(realPos, BARRANQUILLA_PASSENGER_CENTER);
+        if (distFromBaq <= 60000) {
+          onUpdateUserPosition(realPos);
+          triggerSignal('centerUser', realPos, 16);
+          setToastMsg('Tu ubicación GPS en Barranquilla ha sido actualizada');
+        } else {
+          onUpdateUserPosition(USER_GPS_POSITION);
+          triggerSignal('centerUser', USER_GPS_POSITION, 16);
+          setToastMsg('GPS ubicado en Barranquilla (Cra 46 con Calle 74) para ver buses locales');
+        }
+      },
+      () => {
+        setIsLocatingUser(false);
+        onUpdateUserPosition(USER_GPS_POSITION);
+        triggerSignal('centerUser', USER_GPS_POSITION, 16);
+        setToastMsg('Centrado en tu ubicación de Barranquilla (Cra 46 con Cll 74)');
+      },
+      {enableHighAccuracy: true, timeout: 6000}
+    );
+  }, [onUpdateUserPosition, triggerSignal]);
+
+  // Compute live nearby TransMetro buses
+  const nearbyTransmetroRoutes = useMemo(() => {
+    const q = normalizeText(nearbyFilterText.trim());
+    return INITIAL_ROUTE_CARDS.map((r) => {
+      const busPos = r.category === 'troncal' ? busT01Position : busA12Position;
+      const distanceMeters = getDistanceMeters(activeOrigin, busPos);
+      const destMeters = selectedDestination
+        ? getDistanceMeters(selectedDestination.position, busPos)
+        : null;
+      return {
+        ...r,
+        busPos,
+        distanceMeters,
+        nearDestination: destMeters !== null ? destMeters <= 2500 : false,
+      };
+    })
+      .filter((r) => {
+        if (selectedCompany !== 'all') return false;
+        if (radiusFilter !== null && r.distanceMeters > radiusFilter) return false;
+        if (onlyToDestination && selectedDestination && !r.nearDestination) return false;
+        if (
+          q &&
+          !normalizeText(r.code).includes(q) &&
+          !normalizeText(r.name).includes(q) &&
+          !normalizeText(r.corridor).includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }, [
+    activeOrigin,
+    busT01Position,
+    busA12Position,
+    nearbyFilterText,
+    selectedCompany,
+    radiusFilter,
+    onlyToDestination,
+    selectedDestination,
+  ]);
+
+  // Compute real-time nearby company buses & routes
+  const nearbyCompanyRoutes = useMemo(() => {
+    const q = normalizeText(nearbyFilterText.trim());
+    return COMPANY_BUS_ROUTES.map((route, idx) => {
+      const distanceToRoute = getDistanceToPolylineMeters(activeOrigin, route.path);
+      const speedSeed = ((tick * 0.045 + idx * 0.17) % 1 + 1) % 1;
+      const liveBusPos = interpolateAlongPath(route.path, speedSeed);
+      const busDistanceMeters = getDistanceMeters(activeOrigin, liveBusPos);
+      const effectiveDist = Math.min(distanceToRoute, busDistanceMeters);
+      const destDist = selectedDestination
+        ? getDistanceToPolylineMeters(selectedDestination.position, route.path)
+        : null;
+      const liveEta = Math.max(
+        1,
+        Math.min(18, Math.round(busDistanceMeters / 240) + (route.etaMinutes % 4))
       );
-      return next;
-    });
-    setShowCorridors(true);
-  };
 
-  const handleMicSearch = () => {
-    setSearchQuery('Portal del Prado');
-    setDropdownOpen(true);
-    showToast('Búsqueda por voz: "Portal del Prado"');
-  };
+      return {
+        route,
+        liveBusPos,
+        distanceMeters: effectiveDist,
+        busDistanceMeters,
+        liveEta,
+        servesDestination: destDist !== null ? destDist <= 1600 : false,
+      };
+    })
+      .filter((item) => {
+        if (selectedCompany !== 'all' && item.route.company !== selectedCompany) return false;
+        if (radiusFilter !== null && item.distanceMeters > radiusFilter) return false;
+        if (onlyToDestination && selectedDestination && !item.servesDestination) return false;
+        if (
+          q &&
+          !normalizeText(item.route.company).includes(q) &&
+          !normalizeText(item.route.code).includes(q) &&
+          !normalizeText(item.route.description).includes(q) &&
+          !normalizeText(item.route.corridor).includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }, [
+    activeOrigin,
+    tick,
+    nearbyFilterText,
+    selectedCompany,
+    radiusFilter,
+    onlyToDestination,
+    selectedDestination,
+  ]);
 
-  const handleSelectCompanyRoute = useCallback(
-    (route: CompanyRouteItem, syncFilter = false) => {
-      setSelectedCompanyRoute(route);
-      setRouteFilter('all');
-      if (syncFilter) {
-        setSelectedCompany(route.company);
-        setSheetExpanded(true);
+  const nearbyBusMarkers: NearbyBusMarker[] = useMemo(() => {
+    return nearbyCompanyRoutes.slice(0, 8).map((item) => ({
+      id: `bus-${item.route.id}`,
+      code: item.route.code,
+      company: item.route.company,
+      position: item.liveBusPos,
+      etaMinutes: item.liveEta,
+      distanceMeters: item.busDistanceMeters,
+      color: item.route.color,
+    }));
+  }, [nearbyCompanyRoutes]);
+
+  const matchingStations = useMemo(() => {
+    const q = normalizeText(autocompleteQuery.trim());
+    if (q.length < 2) return [];
+    return TRANSIT_STATIONS.filter(
+      (st) => normalizeText(st.name).includes(q) || normalizeText(st.subtitle).includes(q)
+    );
+  }, [autocompleteQuery]);
+
+  const applyPlacePoint = useCallback(
+    (point: PlacePoint, targetField: 'origin' | 'destination') => {
+      if (targetField === 'origin') {
+        setOriginMarker(point);
+        setOriginQuery(point.name);
+        triggerSignal('focus', point.position, 15);
+        setToastMsg(`Punto de partida: ${point.name}`);
+      } else {
+        setSelectedDestination(point);
+        setDestQuery(point.name);
+        triggerSignal('focus', point.position, 15);
+        setToastMsg(`Destino: ${point.name}`);
       }
-      setDropdownOpen(false);
-      triggerSignal('focus', route.center, 14);
-      showToast(`${route.company} · Ruta ${route.code} en mapa`);
+      setActiveField(null);
+      resetSession();
     },
-    [showToast, triggerSignal]
+    [resetSession, triggerSignal]
   );
-
-  const handleSelectStationSuggestion = (station: TransitStation) => {
-    setSelectedDestination({
-      name: station.name,
-      address: station.subtitle,
-      position: station.position,
-    });
-    setSearchQuery(station.name);
-    setDropdownOpen(false);
-    resetSession();
-    triggerSignal('focus', station.position, 17);
-    showToast(`Estación seleccionada: ${station.name}`);
-  };
 
   const handleSelectPlaceSuggestion = async (
     suggestion: google.maps.places.AutocompleteSuggestion
   ) => {
-    if (!placesLib || !suggestion.placePrediction) return;
+    if (!placesLib || !suggestion.placePrediction || !activeField) return;
+    const targetField = activeField;
     setIsResolvingPlace(true);
     try {
       const place = suggestion.placePrediction.toPlace();
       await place.fetchFields({
-        fields: ['displayName', 'formattedAddress', 'location', 'viewport'],
+        fields: ['displayName', 'formattedAddress', 'location'],
       });
-
       const loc = place.location;
       if (loc) {
         const position = {lat: loc.lat(), lng: loc.lng()};
@@ -322,163 +446,241 @@ export function PassengerMapScreen({
           place.formattedAddress ??
           suggestion.placePrediction.secondaryText?.text ??
           'Barranquilla, Atlántico';
-
-        setSelectedDestination({name, address, position});
-        setSearchQuery(name);
-        setDropdownOpen(false);
-        resetSession();
-        triggerSignal('focus', position, 16);
-        showToast(`Destino fijado: ${name}`);
+        applyPlacePoint({name, address, position}, targetField);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('OVER_QUERY_LIMIT')) {
         window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
       }
-      showToast('No se pudo obtener la ubicación de ese lugar');
+      setToastMsg('No se pudo obtener la ubicación de ese lugar');
     } finally {
       setIsResolvingPlace(false);
     }
   };
 
+  const handleSwapOriginDestination = () => {
+    const prevOriginPoint: PlacePoint = originMarker ?? {
+      name: 'Mi ubicación actual (GPS)',
+      address: 'Cra 46 con Calle 74 · Barranquilla',
+      position: userPosition,
+    };
+    const prevDestPoint = selectedDestination;
+
+    if (prevDestPoint) {
+      setOriginMarker(prevDestPoint);
+      setOriginQuery(prevDestPoint.name);
+    } else {
+      setOriginMarker(null);
+      setOriginQuery('Mi ubicación actual (GPS)');
+    }
+
+    setSelectedDestination(prevOriginPoint);
+    setDestQuery(prevOriginPoint.name);
+    setToastMsg('Punto de partida y destino intercambiados');
+  };
+
+  const handleCameraSync = useCallback((zoom: number, isAtDefault: boolean) => {
+    setZoomState({zoom, isAtDefault});
+  }, []);
+
+  const handleToggleLayers = () => {
+    setShowTrafficLayer((prev) => {
+      const next = !prev;
+      setToastMsg(
+        next
+          ? 'Capa de tráfico en vivo activada en Barranquilla'
+          : 'Capa de corredores troncales actualizada'
+      );
+      return next;
+    });
+    setShowCorridors(true);
+  };
+
   const handleSubmitIncident = (e: React.FormEvent) => {
     e.preventDefault();
-    const detail = reportText.trim() || 'Demora reportada por pasajero cerca de Estación La Catorce.';
+    const detail =
+      reportText.trim() || 'Demora reportada por pasajero cerca de Estación La Catorce.';
     onReportIncident(`${reportType} • Cra 46`, detail);
     setReportText('');
     setShowReportModal(false);
-    showToast('Incidente enviado al Centro de Control BAQ');
+    setToastMsg('Incidente enviado al Centro de Control BAQ');
   };
+
+  const totalNearbyCount = nearbyTransmetroRoutes.length + nearbyCompanyRoutes.length;
 
   return (
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
-      {/* Top Floating Header & Location Status */}
-      <header className="absolute top-0 left-0 right-0 z-30 px-4 pt-4 pb-3 bg-gradient-to-b from-slate-900/90 via-slate-900/55 to-transparent pointer-events-none">
-        <div className="flex items-center justify-between mb-3 pointer-events-auto">
-          {/* Brand & City Tag */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-[14px] bg-[#0D9488] flex items-center justify-center text-white shadow-md shrink-0">
-              <Bus className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-headline text-lg font-bold text-white tracking-tight">
-                  APP BUSES
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-white/20 text-white font-mono text-[11px] font-semibold">
-                  BAQ
+      {/* Top Floating Trip Planner: Punto de partida + Destino */}
+      <header className="absolute top-0 left-0 right-0 z-30 px-3 pt-2.5 pb-2 bg-gradient-to-b from-slate-900/55 via-slate-900/15 to-transparent pointer-events-none">
+        <div ref={tripCardRef} className="relative pointer-events-auto">
+          {tripCardCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setTripCardCollapsed(false)}
+              className="w-full px-3.5 py-2.5 rounded-[12px] bg-white shadow-xl border border-slate-200 flex items-center justify-between gap-2 text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Compass className="w-4 h-4 text-[#0D9488] shrink-0" />
+                <span className="text-xs font-semibold text-slate-900 truncate">
+                  {originMarker ? originMarker.name : 'Tu ubicación'} →{' '}
+                  {selectedDestination ? selectedDestination.name : 'Elegir destino'}
                 </span>
               </div>
-              <p className="text-white/85 text-xs flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-ping" />
-                <span>GPS Activo • Cra 46 con Calle 74</span>
-              </p>
+              <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+            </button>
+          ) : (
+            <div className="bg-white rounded-[14px] shadow-xl border border-slate-200 p-2 space-y-1.5">
+              {/* Row 1: Punto de partida */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1 flex items-center">
+                  <span
+                    aria-hidden="true"
+                    className="w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-3 pointer-events-none"
+                  />
+                  <input
+                    type="text"
+                    aria-label="Punto de partida"
+                    value={originQuery}
+                    onFocus={() => {
+                      setActiveField('origin');
+                      if (originQuery === 'Mi ubicación actual (GPS)') {
+                        setOriginQuery('');
+                      }
+                    }}
+                    onChange={(e) => {
+                      setOriginQuery(e.target.value);
+                      setActiveField('origin');
+                      if (!e.target.value.trim()) {
+                        setOriginMarker(null);
+                      }
+                    }}
+                    placeholder="Punto de partida (ej. Cra 46, Prado...)"
+                    className="w-full h-9 pl-8 pr-16 py-0 leading-normal rounded-[9px] bg-slate-100 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                  />
+                  <div className="absolute right-1.5 flex items-center gap-0.5">
+                    {originQuery && originQuery !== 'Mi ubicación actual (GPS)' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOriginMarker(null);
+                          setOriginQuery('Mi ubicación actual (GPS)');
+                        }}
+                        aria-label="Restablecer punto de partida a GPS"
+                        className="p-1 text-slate-400 hover:text-slate-700"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleLocateUser}
+                      title="Usar mi ubicación GPS actual"
+                      aria-label="Usar mi ubicación GPS actual"
+                      className="w-7 h-7 rounded-md bg-white border border-slate-200 text-[#0D9488] hover:bg-teal-50 flex items-center justify-center shadow-xs"
+                    >
+                      {isLocatingUser ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <LocateFixed className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSwapOriginDestination}
+                  aria-label="Intercambiar partida y destino"
+                  title="Intercambiar partida y destino"
+                  className="w-9 h-9 rounded-[9px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Row 2: Destino */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1 flex items-center">
+                  <MapPin
+                    aria-hidden="true"
+                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2.5 pointer-events-none"
+                  />
+                  <input
+                    type="text"
+                    aria-label="Destino"
+                    value={destQuery}
+                    onFocus={() => setActiveField('destination')}
+                    onChange={(e) => {
+                      setDestQuery(e.target.value);
+                      setActiveField('destination');
+                      if (!e.target.value.trim()) {
+                        setSelectedDestination(null);
+                        setOnlyToDestination(false);
+                      }
+                    }}
+                    placeholder="¿Cuál es tu destino en Barranquilla?"
+                    className="w-full h-9 pl-8 pr-8 py-0 leading-normal rounded-[9px] bg-slate-100 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                  />
+                  {destQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDestQuery('');
+                        setSelectedDestination(null);
+                        setOnlyToDestination(false);
+                      }}
+                      aria-label="Limpiar destino"
+                      className="p-1 absolute right-1.5 text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setTripCardCollapsed(true)}
+                  aria-label="Minimizar barra de ruta"
+                  title="Minimizar para ver más mapa"
+                  className="w-9 h-9 rounded-[9px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Quick Wallet Pill & Notifications */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onNavigate('billetera')}
-              className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur shadow-sm border border-white/40 text-slate-900 hover:bg-white active:scale-95 transition-all"
-            >
-              <Wallet className="w-4 h-4 text-[#0D9488]" />
-              <span className="font-mono text-[13px] font-bold tabular-nums">
-                {formatCOP(balance)}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNotifModal(true)}
-              aria-label="Notificaciones"
-              className="w-11 h-11 rounded-full bg-white/90 backdrop-blur flex items-center justify-center text-slate-900 shadow-sm hover:bg-white active:scale-95 transition-all relative"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626] absolute top-2 right-2 border-2 border-white" />
-            </button>
-          </div>
-        </div>
-
-        {/* Searchbar Input with Places Autocomplete Dropdown */}
-        <div ref={searchBoxRef} className="relative pointer-events-auto">
-          <div className="relative flex items-center shadow-lg rounded-[10px]">
-            <Search
-              aria-hidden="true"
-              className="w-4 h-4 absolute left-3.5 text-slate-500 pointer-events-none"
-            />
-            <input
-              type="text"
-              role="combobox"
-              aria-expanded={dropdownOpen}
-              aria-autocomplete="list"
-              value={searchQuery}
-              onFocus={() => setDropdownOpen(true)}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setDropdownOpen(true);
-                if (!e.target.value.trim()) {
-                  setSelectedDestination(null);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setDropdownOpen(false);
-                } else if (e.key === 'Enter' && dropdownOpen) {
-                  e.preventDefault();
-                  if (placeSuggestions.length > 0) {
-                    void handleSelectPlaceSuggestion(placeSuggestions[0]);
-                  } else if (matchingStations.length > 0) {
-                    handleSelectStationSuggestion(matchingStations[0]);
-                  } else if (matchingTopBarRoutes.length > 0) {
-                    handleSelectCompanyRoute(matchingTopBarRoutes[0], true);
-                  }
-                }
-              }}
-              placeholder="¿A dónde vas? Lugar, dirección, empresa o ruta..."
-              className="w-full min-h-[48px] pl-10 pr-20 py-3 bg-white border-0 rounded-[10px] text-sm text-slate-900 placeholder-slate-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setSelectedDestination(null);
-                  resetSession();
-                  setDropdownOpen(false);
-                }}
-                aria-label="Limpiar búsqueda"
-                className="w-8 h-8 absolute right-11 flex items-center justify-center text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleMicSearch}
-              aria-label="Usar micrófono"
-              className="w-10 h-10 absolute right-1.5 flex items-center justify-center text-slate-500 hover:text-[#0D9488]"
-            >
-              {isResolvingPlace ? (
-                <Loader2 className="w-4 h-4 animate-spin text-[#0D9488]" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-
-          {/* Autocomplete Suggestions Dropdown */}
-          {dropdownOpen && searchQuery.trim().length >= 2 && (
+          {/* Shared Places Autocomplete Dropdown for Origin or Destination */}
+          {activeField && autocompleteQuery.trim().length >= 2 && (
             <div
               role="listbox"
-              aria-label="Sugerencias de lugares y direcciones"
-              className="absolute left-0 right-0 mt-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden z-50 max-h-64 overflow-y-auto divide-y divide-slate-100"
+              aria-label="Sugerencias de lugares"
+              className="absolute left-0 right-0 mt-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden z-50 max-h-60 overflow-y-auto divide-y divide-slate-100"
             >
+              {activeField === 'origin' && (
+                <button
+                  type="button"
+                  onClick={handleLocateUser}
+                  className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 bg-teal-50/60 hover:bg-teal-100/70 transition-colors"
+                >
+                  <LocateFixed className="w-4 h-4 text-[#0D9488] shrink-0" />
+                  <span className="text-xs font-semibold text-[#0D9488]">
+                    Usar mi ubicación actual (GPS)
+                  </span>
+                </button>
+              )}
+
               {matchingStations.map((st) => (
                 <button
                   key={`st-${st.id}`}
                   type="button"
-                  onClick={() => handleSelectStationSuggestion(st)}
+                  onClick={() =>
+                    applyPlacePoint(
+                      {name: st.name, address: st.subtitle, position: st.position},
+                      activeField
+                    )
+                  }
                   className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-teal-50/70 transition-colors"
                 >
                   <div className="w-7 h-7 rounded-full bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0 mt-0.5">
@@ -493,10 +695,10 @@ export function PassengerMapScreen({
                 </button>
               ))}
 
-              {isSuggestionsLoading && (
+              {(isSuggestionsLoading || isResolvingPlace) && (
                 <div className="px-3.5 py-3 flex items-center gap-2 text-xs text-slate-500">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
-                  <span>Buscando lugares y direcciones en Barranquilla...</span>
+                  <span>Buscando en Barranquilla...</span>
                 </div>
               )}
 
@@ -526,140 +728,70 @@ export function PassengerMapScreen({
                   );
                 })}
 
-              {matchingTopBarRoutes.map((route) => (
-                <button
-                  key={`top-route-${route.id}`}
-                  type="button"
-                  onClick={() => handleSelectCompanyRoute(route, true)}
-                  className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-teal-50/70 transition-colors"
-                >
-                  <div
-                    className={`w-7 h-7 rounded-md ${getCompanyBadgeClass(
-                      route.company
-                    )} text-white flex items-center justify-center shrink-0 mt-0.5`}
-                  >
-                    <Bus className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-900 truncate">
-                      {route.code} · {route.company}
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate">{route.description}</p>
-                  </div>
-                </button>
-              ))}
-
-              {!isSuggestionsLoading &&
-                suggestionsError &&
-                matchingStations.length === 0 &&
-                matchingTopBarRoutes.length === 0 && (
-                  <div className="px-3.5 py-3 text-xs text-amber-700 bg-amber-50">
-                    {suggestionsError}
-                  </div>
-                )}
-
-              {!isSuggestionsLoading &&
-                !suggestionsError &&
-                placeSuggestions.length === 0 &&
-                matchingStations.length === 0 &&
-                matchingTopBarRoutes.length === 0 && (
-                  <div className="px-3.5 py-3 text-xs text-slate-500">
-                    No se encontraron lugares, direcciones ni rutas para "{searchQuery}".
-                  </div>
-                )}
+              {!isSuggestionsLoading && suggestionsError && matchingStations.length === 0 && (
+                <div className="px-3.5 py-3 text-xs text-amber-700 bg-amber-50">
+                  {suggestionsError}
+                </div>
+              )}
             </div>
           )}
         </div>
       </header>
 
-      {/* Interactive Real Barranquilla Google Map Area */}
-      <main className="relative flex-1 min-h-[210px] w-full bg-[#E8ECEF] overflow-hidden">
+      {/* Interactive Real Barranquilla Explore Map */}
+      <main className="relative flex-1 min-h-[220px] w-full bg-[#E8ECEF] overflow-hidden">
         <BarranquillaPassengerMap
           routeFilter={routeFilter}
           showTrafficLayer={showTrafficLayer}
           showCorridors={showCorridors}
           busT01Position={busT01Position}
           busA12Position={busA12Position}
-          userPosition={USER_GPS_POSITION}
+          userPosition={userPosition}
+          originMarker={originMarker}
           selectedDestination={selectedDestination}
           selectedCompanyRoute={selectedCompanyRoute}
+          userRadiusMeters={radiusFilter}
+          nearbyBuses={nearbyBusMarkers}
           signal={mapSignal}
           onCameraSync={handleCameraSync}
           onSelectStation={(st) => setSelectedStation(st)}
           onSelectBus={(code) => {
             if (code === 'T-01') {
               triggerSignal('focus', busT01Position, 16);
-              showToast('Bus #B-304 (T-01) • Llega en 2 min • 42% Ocupación');
+              setToastMsg('Bus #B-304 (T-01) • Llega en 2 min • 42% Ocupación');
             } else {
               triggerSignal('focus', busA12Position, 16);
-              showToast('Bus #B-118 (A-12) • Llega en 6 min • 18% Ocupación');
+              setToastMsg('Bus #B-118 (A-12) • Llega en 6 min • 18% Ocupación');
             }
           }}
+          onSelectNearbyBus={(bus) => {
+            const found = COMPANY_BUS_ROUTES.find((r) => `bus-${r.id}` === bus.id);
+            if (found) setSelectedCompanyRoute(found);
+            triggerSignal('focus', bus.position, 15);
+            setToastMsg(
+              `${bus.company} (${bus.code}) • a ${formatDistanceLabel(bus.distanceMeters)} • ${bus.etaMinutes} min`
+            );
+          }}
         />
-
-        {/* Quick Category Chips */}
-        <div className="absolute left-3.5 top-32 z-20 flex items-center gap-2 overflow-x-auto no-scrollbar max-w-[calc(100%-70px)]">
-          <button
-            type="button"
-            onClick={() => {
-              setRouteFilter('troncal');
-              setSelectedCompany('all');
-              setRouteSearchFilter('');
-              showToast('Filtrando solo rutas Troncales');
-            }}
-            className={`min-h-[36px] px-3.5 py-1.5 rounded-full text-[11px] font-medium shadow flex items-center gap-1.5 whitespace-nowrap active:scale-95 transition-all ${
-              routeFilter === 'troncal'
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-800 border border-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-[#2563EB]" /> Troncales
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRouteFilter('alimentador');
-              setSelectedCompany('all');
-              setRouteSearchFilter('');
-              showToast('Filtrando solo rutas Alimentadoras');
-            }}
-            className={`min-h-[36px] px-3.5 py-1.5 rounded-full text-[11px] font-medium shadow flex items-center gap-1.5 whitespace-nowrap active:scale-95 transition-all ${
-              routeFilter === 'alimentador'
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-800 border border-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-[#16A34A]" /> Alimentadores
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRouteFilter('all');
-              setSheetExpanded(true);
-              showToast('Mostrando las 24 empresas y 91 rutas de Barranquilla');
-            }}
-            className={`min-h-[36px] px-3.5 py-1.5 rounded-full text-[11px] font-medium shadow flex items-center gap-1 whitespace-nowrap active:scale-95 transition-all ${
-              routeFilter === 'all'
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-800 border border-slate-200'
-            }`}
-          >
-            Empresas y Rutas ({COMPANY_BUS_ROUTES.length})
-          </button>
-        </div>
 
         {/* Floating Map Utility Buttons */}
         <aside
           aria-label="Controles del mapa"
-          className="absolute right-3.5 top-32 z-20 flex flex-col gap-1.5"
+          className={`absolute right-3 z-20 flex flex-col gap-1.5 transition-all ${
+            tripCardCollapsed ? 'top-[62px]' : 'top-[108px]'
+          }`}
         >
           <button
             type="button"
-            onClick={handleCenterGPS}
-            aria-label="Mi ubicación"
+            onClick={handleLocateUser}
+            aria-label="Ubicar mi posición GPS"
             className="w-10 h-10 rounded-full bg-white text-slate-900 shadow-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
           >
-            <LocateFixed className="w-4 h-4 text-[#0D9488]" />
+            {isLocatingUser ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[#0D9488]" />
+            ) : (
+              <LocateFixed className="w-4 h-4 text-[#0D9488]" />
+            )}
           </button>
           <button
             type="button"
@@ -682,7 +814,6 @@ export function PassengerMapScreen({
             <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
           </button>
 
-          {/* Real Google Maps Zoom Group */}
           <div
             role="group"
             aria-label="Zoom del mapa"
@@ -700,7 +831,7 @@ export function PassengerMapScreen({
             <button
               type="button"
               aria-label="Alejar"
-              disabled={zoomState.zoom <= 12}
+              disabled={zoomState.zoom <= 11}
               onClick={() => triggerSignal('zoomOut')}
               className="w-10 h-8 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
             >
@@ -719,134 +850,97 @@ export function PassengerMapScreen({
         </aside>
       </main>
 
-      {/* Bottom Sliding Sheet: Nearby Routes & Bus Real-Time Telemetry */}
+      {/* Bottom Sliding Sheet: Nearby Live Buses & Real-Time Routes */}
       <section
-        aria-label="Rutas cercanas y estimaciones de llegada"
-        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[24px] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] border-t border-slate-200 px-4 pt-2 pb-4 flex flex-col gap-2 transition-all ${
-          sheetExpanded ? 'max-h-[68%]' : 'max-h-[38%]'
+        aria-label="Buses y rutas cercanas en tiempo real"
+        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[24px] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] border-t border-slate-200 px-3.5 pt-2 pb-4 flex flex-col gap-2 transition-all ${
+          sheetExpanded ? 'max-h-[68%]' : 'max-h-[42%]'
         }`}
       >
-        {/* Sheet Drag Handle */}
         <button
           type="button"
           onClick={() => setSheetExpanded((s) => !s)}
-          aria-label="Expandir o contraer rutas"
-          className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-0.5 hover:bg-slate-400 transition-colors"
+          aria-label="Expandir o contraer buses cercanos"
+          className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
         />
 
-        {/* Live Station Indicator or Selected Destination Summary */}
-        {selectedDestination && (
-          <div className="px-3 py-2 rounded-[10px] bg-teal-50 border border-teal-200 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <MapPin className="w-4 h-4 text-[#0D9488] shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900 truncate">
-                  Destino: {selectedDestination.name}
-                </p>
-                <p className="text-[11px] text-slate-600 truncate">
-                  {selectedDestination.address} · Ruta recomendada: T-01 / A-12
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedDestination(null);
-                setSearchQuery('');
-                triggerSignal('reset');
-              }}
-              aria-label="Quitar destino"
-              className="p-1 text-slate-500 hover:text-slate-900 shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Selected Bus Company Route Banner */}
-        {selectedCompanyRoute && (
-          <div className="px-3 py-2 rounded-[10px] bg-slate-900 text-white flex items-center justify-between gap-2 shadow-sm">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span
-                className={`px-2 py-0.5 rounded text-[11px] font-headline font-bold text-white shrink-0 ${getCompanyBadgeClass(
-                  selectedCompanyRoute.company
-                )}`}
-              >
-                {selectedCompanyRoute.code}
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-white truncate">
-                  {selectedCompanyRoute.company} · {selectedCompanyRoute.corridor}
-                </p>
-                <p className="text-[11px] text-slate-300 truncate">
-                  {selectedCompanyRoute.description}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCompanyRoute(null);
-                triggerSignal('reset');
-              }}
-              aria-label="Quitar ruta seleccionada"
-              className="p-1 text-slate-400 hover:text-white shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider">
-              Parada más cercana (85m)
+        {/* Header Row: Live Nearby Summary */}
+        <div className="flex items-center justify-between gap-2 shrink-0">
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>En tiempo real · {totalNearbyCount} cerca</span>
             </span>
-            <h2 className="font-headline text-base font-bold text-slate-900 flex items-center gap-1.5">
-              <span>Estación La Catorce</span>
-              <CheckCircle2 className="w-4 h-4 text-teal-800" />
+            <h2 className="font-headline text-sm @[420px]:text-base font-bold text-slate-900 truncate flex items-center gap-1.5">
+              <Navigation className="w-3.5 h-3.5 text-[#0D9488] shrink-0" />
+              <span className="truncate">
+                {originMarker ? originMarker.name : 'Alrededor de tu ubicación'}
+              </span>
             </h2>
           </div>
+
           <button
             type="button"
-            onClick={() => setSelectedStation(TRANSIT_STATIONS[0])}
-            className="min-h-[44px] flex items-center gap-0.5 text-xs text-teal-800 font-bold hover:underline"
+            onClick={() => onNavigate('rutas')}
+            className="min-h-[34px] px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold flex items-center gap-1 shrink-0"
           >
-            <span>Horarios</span>
-            <ChevronRight className="w-4 h-4" />
+            <Route className="w-3.5 h-3.5 text-[#0D9488]" />
+            <span>Ver Rutas</span>
           </button>
         </div>
 
-        {/* Bus Company & Route Search Filter Bar */}
-        <div
-          aria-label="Filtro de empresas y rutas de buses"
-          className="grid grid-cols-1 @[480px]:grid-cols-12 gap-2 shrink-0"
-        >
+        {/* Real-time Radius & Destination Filter Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 pb-0.5">
+          {RADIUS_OPTIONS.map((opt) => {
+            const active = radiusFilter === opt.value;
+            return (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => setRadiusFilter(opt.value)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                  active
+                    ? 'bg-[#0D9488] text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {opt.value === null ? opt.label : `Radio ${opt.label}`}
+              </button>
+            );
+          })}
+
+          {selectedDestination && (
+            <button
+              type="button"
+              onClick={() => setOnlyToDestination((v) => !v)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 border transition-colors ${
+                onlyToDestination
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100'
+              }`}
+            >
+              Hacia destino ✓
+            </button>
+          )}
+        </div>
+
+        {/* Company & Quick Nearby Text Filter */}
+        <div className="grid grid-cols-1 @[480px]:grid-cols-12 gap-2 shrink-0">
           <div className="@[480px]:col-span-5">
             <select
-              aria-label="Filtrar por empresa de bus"
+              aria-label="Filtrar buses cercanos por empresa"
               value={selectedCompany}
-              onChange={(e) => {
-                const next = e.target.value;
-                setSelectedCompany(next);
-                setRouteFilter('all');
-                if (next !== 'all') {
-                  setSheetExpanded(true);
-                }
-              }}
-              className="w-full h-10 px-3 py-0 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
+              onChange={(e) => setSelectedCompany(e.target.value)}
+              className="w-full h-9 px-2.5 py-0 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
             >
-              <option value="all">
-                Todas las empresas ({BUS_COMPANIES.length} · {COMPANY_BUS_ROUTES.length} rutas)
-              </option>
-              {BUS_COMPANIES.map((comp) => (
-                <option key={comp.name} value={comp.name}>
-                  {comp.name} ({comp.count})
+              <option value="all">Todas las empresas ({BUS_COMPANIES.length})</option>
+              {BUS_COMPANIES.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
                 </option>
               ))}
             </select>
           </div>
-
           <div className="@[480px]:col-span-7 relative flex items-center">
             <Search
               aria-hidden="true"
@@ -854,149 +948,118 @@ export function PassengerMapScreen({
             />
             <input
               type="text"
-              aria-label="Buscar empresa, código de ruta o barrio"
-              value={routeSearchFilter}
+              aria-label="Filtrar rutas cercanas"
+              value={nearbyFilterText}
               onFocus={() => setSheetExpanded(true)}
-              onChange={(e) => {
-                setRouteSearchFilter(e.target.value);
-                setRouteFilter('all');
-                setSheetExpanded(true);
-              }}
-              placeholder="Buscar empresa, código o barrio (ej. Vía 40)..."
-              className="w-full h-10 pl-8 pr-20 py-0 leading-normal rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+              onChange={(e) => setNearbyFilterText(e.target.value)}
+              placeholder="Filtrar buses o rutas cercanas..."
+              className="w-full h-9 pl-8 pr-8 py-0 leading-normal rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
             />
-            <div className="absolute right-2 flex items-center gap-1.5">
-              {routeSearchFilter && (
-                <button
-                  type="button"
-                  onClick={() => setRouteSearchFilter('')}
-                  aria-label="Limpiar filtro de rutas"
-                  className="p-1 text-slate-400 hover:text-slate-700"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <span className="px-2 py-0.5 rounded-full bg-white border border-slate-200 font-mono text-[10px] font-bold text-slate-700 tabular-nums">
-                {filteredCompanyRoutes.length + filteredRoutes.length}
-              </span>
-            </div>
+            {nearbyFilterText && (
+              <button
+                type="button"
+                onClick={() => setNearbyFilterText('')}
+                aria-label="Limpiar filtro"
+                className="p-1 absolute right-2 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Bus Route Cards List */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-3 overflow-y-auto pr-0.5 content-start">
-          {filteredRoutes.length === 0 && filteredCompanyRoutes.length === 0 ? (
-            <div className="col-span-full py-6 text-center text-sm text-slate-500 space-y-2">
-              <p>
-                No se encontraron rutas para{' '}
-                {selectedCompany !== 'all' ? `${selectedCompany} ` : ''}
-                {routeSearchFilter ? `"${routeSearchFilter}"` : `"${searchQuery}"`}.
-              </p>
+        {/* Scrollable Nearby Buses & Routes Cards */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5 overflow-y-auto pr-0.5 content-start">
+          {totalNearbyCount === 0 ? (
+            <div className="col-span-full py-5 text-center text-xs text-slate-500 space-y-2">
+              <p>No hay buses dentro de este radio con los filtros aplicados.</p>
               <button
                 type="button"
                 onClick={() => {
+                  setRadiusFilter(null);
                   setSelectedCompany('all');
-                  setRouteSearchFilter('');
-                  setRouteFilter('all');
+                  setNearbyFilterText('');
+                  setOnlyToDestination(false);
                 }}
                 className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
               >
-                Restablecer filtros
+                Ampliar radio a toda la ciudad
               </button>
             </div>
           ) : (
             <>
-              {filteredRoutes.map((route) => {
+              {nearbyTransmetroRoutes.map((route) => {
                 const isTroncal = route.category === 'troncal';
                 const badgeColor = isTroncal ? 'bg-[#2563EB]' : 'bg-[#16A34A]';
-                const isMedOcc = route.occupancyPct >= 40;
                 return (
                   <article
                     key={route.id}
                     onClick={() => {
-                      triggerSignal(
-                        'focus',
-                        isTroncal ? busT01Position : busA12Position,
-                        16
-                      );
-                      showToast(`Siguiendo ${route.code} (${route.busId})`);
+                      triggerSignal('focus', route.busPos, 16);
+                      setToastMsg(`Siguiendo ${route.code} (${route.busId}) en tiempo real`);
                     }}
-                    className="p-3.5 bg-slate-50 rounded-[14px] border border-slate-200 hover:border-[#0D9488] transition-all cursor-pointer"
+                    className="p-3 rounded-[14px] bg-slate-50 border border-slate-200 hover:border-[#0D9488] transition-all cursor-pointer"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <span
-                          className={`px-2.5 py-1 ${badgeColor} text-white font-headline text-base font-bold rounded-[6px]`}
+                          className={`px-2 py-1 ${badgeColor} text-white font-headline text-sm font-bold rounded-[6px] shrink-0`}
                         >
                           {route.code}
                         </span>
-                        <div>
-                          <h3 className="text-sm text-slate-900 font-semibold leading-snug">
+                        <div className="min-w-0">
+                          <h3 className="text-xs font-bold text-slate-900 truncate">
                             {route.name}
                           </h3>
-                          <p className="text-xs text-slate-500 flex items-center gap-1">
-                            <span>{route.busId}</span> •{' '}
-                            <span className="text-slate-600 font-mono">
-                              {route.amenities ?? route.corridor}
-                            </span>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            {route.busId} · a {formatDistanceLabel(route.distanceMeters)}
                           </p>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <span className="font-headline text-base text-emerald-700 font-bold tabular-nums">
+                        <span className="font-headline text-sm text-emerald-700 font-bold tabular-nums">
                           {route.etaMinutes} min
                         </span>
-                        <p className="text-[11px] text-slate-500 tabular-nums">
-                          Próx: {route.nextMinutes} min
-                        </p>
+                        <p className="text-[10px] text-slate-500 tabular-nums">En vivo</p>
                       </div>
                     </div>
 
-                    <div className="mt-3 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium border ${
-                          isMedOcc
-                            ? 'bg-amber-50 text-[#D97706] border-amber-200'
-                            : 'bg-emerald-50 text-[#16A34A] border-emerald-200'
-                        }`}
-                      >
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            isMedOcc ? 'bg-[#D97706]' : 'bg-[#16A34A]'
-                          }`}
-                        />
-                        <span>{route.occupancyPct}% Ocupación</span>
+                    <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-medium text-slate-600">
+                        {route.occupancyPct}% Ocupación
                       </span>
-
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono text-[13px] font-bold text-slate-900 tabular-nums">
-                          {formatCOP(route.fareCop)} COP
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-slate-900 tabular-nums">
+                          {formatCOP(route.fareCop)}
                         </span>
-                        {isTroncal && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onNavigate('billetera');
-                            }}
-                            className="min-h-9 px-3 py-1.5 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800 active:scale-95 transition-all"
-                          >
-                            QR Pasaje
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigate('billetera');
+                          }}
+                          className="min-h-7 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
+                        >
+                          QR Pasaje
+                        </button>
                       </div>
                     </div>
                   </article>
                 );
               })}
 
-              {filteredCompanyRoutes.map((route) => {
+              {nearbyCompanyRoutes.map((item) => {
+                const {route, distanceMeters, liveEta, servesDestination, liveBusPos} = item;
                 const isSelected = selectedCompanyRoute?.id === route.id;
                 return (
                   <article
                     key={route.id}
-                    onClick={() => handleSelectCompanyRoute(route, false)}
-                    className={`p-3.5 rounded-[14px] border transition-all cursor-pointer ${
+                    onClick={() => {
+                      setSelectedCompanyRoute(route);
+                      triggerSignal('focus', liveBusPos, 15);
+                      setToastMsg(`${route.company} · ${route.code} a ${formatDistanceLabel(distanceMeters)}`);
+                    }}
+                    className={`p-3 rounded-[14px] border transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-teal-50/70 border-[#0D9488] ring-1 ring-[#0D9488]'
                         : 'bg-slate-50 border-slate-200 hover:border-[#0D9488]'
@@ -1012,36 +1075,45 @@ export function PassengerMapScreen({
                           {route.code}
                         </span>
                         <div className="min-w-0">
-                          <h3 className="text-xs font-bold text-slate-900 leading-snug">
-                            {route.company}
-                          </h3>
-                          <p className="text-xs text-slate-700 leading-snug mt-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="text-xs font-bold text-slate-900 leading-snug">
+                              {route.company}
+                            </h3>
+                            <span className="px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 font-mono text-[10px] font-bold">
+                              a {formatDistanceLabel(distanceMeters)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700 leading-snug mt-0.5 truncate">
                             {route.description}
                           </p>
-                          <p className="text-[11px] text-slate-500 font-mono mt-1 truncate">
+                          <p className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
                             {route.corridor}
                           </p>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-headline text-sm text-emerald-700 font-bold tabular-nums">
-                          {route.etaMinutes} min
+                          {liveEta} min
                         </span>
-                        <p className="text-[11px] text-slate-500 tabular-nums">
-                          Próx: {route.nextMinutes} min
-                        </p>
+                        <p className="text-[10px] text-slate-500 tabular-nums">En camino</p>
                       </div>
                     </div>
 
-                    <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800">
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span>{isSelected ? 'Mostrando en mapa' : 'Ver recorrido'}</span>
+                    <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between gap-2 text-xs">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800 truncate">
+                        <Bus className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">
+                          {servesDestination
+                            ? 'Conecta cerca a tu destino'
+                            : isSelected
+                            ? 'Siguiendo en mapa'
+                            : 'Ver bus en mapa'}
+                        </span>
                       </span>
 
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono text-[13px] font-bold text-slate-900 tabular-nums">
-                          {formatCOP(route.fareCop)} COP
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-mono text-xs font-bold text-slate-900 tabular-nums">
+                          {formatCOP(route.fareCop)}
                         </span>
                         <button
                           type="button"
@@ -1049,7 +1121,7 @@ export function PassengerMapScreen({
                             e.stopPropagation();
                             onNavigate('billetera');
                           }}
-                          className="min-h-8 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800 active:scale-95 transition-all"
+                          className="min-h-7 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
                         >
                           QR Pasaje
                         </button>
@@ -1117,9 +1189,7 @@ export function PassengerMapScreen({
                 type="button"
                 onClick={() => {
                   setFabMenuOpen(false);
-                  setSheetExpanded(true);
-                  setRouteFilter('all');
-                  showToast('Mostrando todas las rutas de Barranquilla');
+                  onNavigate('rutas');
                 }}
                 className="flex items-center gap-2.5 group"
               >
@@ -1137,7 +1207,7 @@ export function PassengerMapScreen({
                 onClick={() => {
                   setFabMenuOpen(false);
                   setSheetExpanded(false);
-                  triggerSignal('reset');
+                  triggerSignal('centerUser', userPosition, 15);
                 }}
                 className="flex items-center gap-2.5 group"
               >
@@ -1145,7 +1215,7 @@ export function PassengerMapScreen({
                   <Compass className="w-5 h-5" />
                 </span>
                 <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Explorar mapa
+                  Explorar mapa (Actual)
                 </span>
               </button>
             </li>
@@ -1284,7 +1354,7 @@ export function PassengerMapScreen({
                   <div>
                     <p className="font-semibold text-slate-900 text-sm">App Pasajero (Actual)</p>
                     <p className="text-[11px] text-slate-500">
-                      Mapa, Rutas en vivo y Billetera Digital
+                      Explorar Mapa, Rutas y Billetera Digital
                     </p>
                   </div>
                 </div>
@@ -1428,7 +1498,7 @@ export function PassengerMapScreen({
 
       {/* Toast Feedback Banner */}
       {toastMsg && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-3.5 py-2 rounded-full shadow-xl text-xs font-medium flex items-center gap-2 max-w-[90%] whitespace-nowrap">
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-3.5 py-2 rounded-full shadow-xl text-xs font-medium flex items-center gap-2 max-w-[90%] whitespace-nowrap">
           <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
           <span className="truncate">{toastMsg}</span>
         </div>

@@ -1,4 +1,4 @@
-export type ScreenId = 'mapa' | 'billetera' | 'conductor' | 'operador';
+export type ScreenId = 'mapa' | 'rutas' | 'billetera' | 'conductor' | 'operador';
 
 export type DeviceMode = 'movil' | 'tablet' | 'desktop';
 
@@ -9,6 +9,13 @@ export type RouteFilter = 'all' | 'troncal' | 'alimentador';
 export interface LatLng {
   lat: number;
   lng: number;
+}
+
+export interface MapBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
 }
 
 export interface TransitStation {

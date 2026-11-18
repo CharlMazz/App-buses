@@ -3,14 +3,18 @@ import {APIProvider} from '@vis.gl/react-google-maps';
 import {DriverCockpitScreen} from './components/DriverCockpitScreen';
 import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
 import {PassengerMapScreen} from './components/PassengerMapScreen';
+import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
 import {
   INITIAL_INCIDENTS,
   INITIAL_TRANSACTIONS,
   NATIVE_DEVICE_BY_SCREEN,
+  USER_GPS_POSITION,
 } from './data/barranquillaTransit';
+import type {CompanyRouteItem} from './data/busRoutesCatalog';
 import type {
   DeviceMode,
+  LatLng,
   OperationalIncident,
   ScreenId,
   WalletTransaction,
@@ -19,7 +23,8 @@ import type {
 const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
 const TABS: Array<{id: ScreenId; label: string}> = [
-  {id: 'mapa', label: 'Pasajero · Mapa'},
+  {id: 'mapa', label: 'Explorar mapa'},
+  {id: 'rutas', label: 'Rutas'},
   {id: 'billetera', label: 'Pasajero · Billetera'},
   {id: 'conductor', label: 'Conductor'},
   {id: 'operador', label: 'Operador'},
@@ -33,7 +38,13 @@ const DEVICES: Array<{id: DeviceMode; label: string}> = [
 
 function getInitialScreen(): ScreenId {
   const raw = window.location.hash.replace('#', '') as ScreenId;
-  if (raw === 'mapa' || raw === 'billetera' || raw === 'conductor' || raw === 'operador') {
+  if (
+    raw === 'mapa' ||
+    raw === 'rutas' ||
+    raw === 'billetera' ||
+    raw === 'conductor' ||
+    raw === 'operador'
+  ) {
     return raw;
   }
   return 'mapa';
@@ -53,6 +64,8 @@ export default function App() {
   const [incomingBroadcast, setIncomingBroadcast] = useState<{text: string; nonce: number} | null>(
     null
   );
+  const [userPosition, setUserPosition] = useState<LatLng>(USER_GPS_POSITION);
+  const [exploreRoute, setExploreRoute] = useState<CompanyRouteItem | null>(null);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -255,8 +268,22 @@ export default function App() {
             {screen === 'mapa' && (
               <PassengerMapScreen
                 balance={balance}
+                userPosition={userPosition}
+                initialFocusRoute={exploreRoute}
+                onClearInitialFocusRoute={() => setExploreRoute(null)}
+                onUpdateUserPosition={setUserPosition}
                 onNavigate={navigateTo}
                 onReportIncident={handlePassengerReport}
+              />
+            )}
+            {screen === 'rutas' && (
+              <PassengerRoutesScreen
+                balance={balance}
+                onNavigate={navigateTo}
+                onExploreRoute={(route) => {
+                  setExploreRoute(route);
+                  navigateTo('mapa');
+                }}
               />
             )}
             {screen === 'billetera' && (
