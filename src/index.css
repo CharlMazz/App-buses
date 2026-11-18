@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-headline: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-title: "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-label: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-map-canvas: #E8ECEF;
+  --color-nequi-brand: #1F0433;
+  --color-teal-accent: #0D9488;
+  --color-teal-accent-light: #14B8A6;
+  --color-route-troncal: #2563EB;
+  --color-route-alimentador: #16A34A;
+  --color-route-expreso: #DC2626;
+  --color-occupancy-low: #16A34A;
+  --color-occupancy-med: #D97706;
+  --color-occupancy-high: #DC2626;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    font-family: var(--font-body);
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ping,
+  .animate-bounce,
+  .animate-pulse {
+    animation: none !important;
+  }
+}
