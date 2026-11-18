@@ -109,6 +109,7 @@ export function PassengerMapScreen({
   const [showTrafficLayer, setShowTrafficLayer] = useState(false);
   const [showCorridors, setShowCorridors] = useState(true);
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
   const [selectedStation, setSelectedStation] = useState<TransitStation | null>(null);
   const [showRolesModal, setShowRolesModal] = useState(false);
@@ -721,8 +722,8 @@ export function PassengerMapScreen({
       {/* Bottom Sliding Sheet: Nearby Routes & Bus Real-Time Telemetry */}
       <section
         aria-label="Rutas cercanas y estimaciones de llegada"
-        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[24px] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] border-t border-slate-200 px-4 pt-2.5 pb-[76px] flex flex-col gap-2 transition-all ${
-          sheetExpanded ? 'max-h-[72%]' : 'max-h-[55%]'
+        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[24px] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] border-t border-slate-200 px-4 pt-2 pb-4 flex flex-col gap-2 transition-all ${
+          sheetExpanded ? 'max-h-[68%]' : 'max-h-[38%]'
         }`}
       >
         {/* Sheet Drag Handle */}
@@ -833,7 +834,7 @@ export function PassengerMapScreen({
                   setSheetExpanded(true);
                 }
               }}
-              className="w-full min-h-[40px] px-3 py-2 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
+              className="w-full h-10 px-3 py-0 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
             >
               <option value="all">
                 Todas las empresas ({BUS_COMPANIES.length} · {COMPANY_BUS_ROUTES.length} rutas)
@@ -862,7 +863,7 @@ export function PassengerMapScreen({
                 setSheetExpanded(true);
               }}
               placeholder="Buscar empresa, código o barrio (ej. Vía 40)..."
-              className="w-full min-h-[40px] pl-8 pr-24 py-2 rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+              className="w-full h-10 pl-8 pr-20 py-0 leading-normal rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
             />
             <div className="absolute right-2 flex items-center gap-1.5">
               {routeSearchFilter && (
@@ -1062,69 +1063,127 @@ export function PassengerMapScreen({
         </div>
       </section>
 
-      {/* Persistent Bottom Navigation Bar */}
+      {/* X-style Single Floating Action Button & Expandable Navigation Menu */}
+      {fabMenuOpen && (
+        <div
+          aria-hidden="true"
+          onClick={() => setFabMenuOpen(false)}
+          className="absolute inset-0 z-30 bg-slate-900/25 backdrop-blur-[1px]"
+        />
+      )}
+
       <nav
-        aria-label="Navegación principal de la aplicación"
-        className="absolute bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-4 pt-2 pb-4 md:pb-3 shadow-lg"
+        aria-label="Menú rápido de la aplicación"
+        className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-2.5"
       >
-        <ul className="flex items-center justify-around max-w-lg mx-auto">
-          <li>
-            <button
-              type="button"
-              onClick={() => triggerSignal('reset')}
-              className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-[#0D9488] font-medium px-3"
-              aria-current="page"
-            >
-              <Compass className="w-5 h-5" />
-              <span className="text-[11px]">Explorar</span>
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              onClick={() => {
-                setSheetExpanded(true);
-                setRouteFilter('all');
-                showToast('Mostrando todas las rutas de Barranquilla');
-              }}
-              className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-3"
-            >
-              <Route className="w-5 h-5" />
-              <span className="text-[11px]">Rutas</span>
-            </button>
-          </li>
-          <li className="-mt-5">
-            <button
-              type="button"
-              onClick={() => onNavigate('billetera')}
-              aria-label="Generar Ticket QR"
-              className="w-14 h-14 rounded-full bg-[#0D9488] text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform"
-            >
-              <QrCode className="w-7 h-7" />
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              onClick={() => onNavigate('billetera')}
-              className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-3"
-            >
-              <Wallet className="w-5 h-5" />
-              <span className="text-[11px]">Billetera</span>
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              onClick={() => setShowRolesModal(true)}
-              aria-label="Cambiar Rol de Usuario"
-              className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-3"
-            >
-              <Users className="w-5 h-5" />
-              <span className="text-[11px]">Roles</span>
-            </button>
-          </li>
-        </ul>
+        {fabMenuOpen && (
+          <ul className="flex flex-col items-end gap-2 mb-0.5">
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  setShowRolesModal(true);
+                }}
+                className="flex items-center gap-2.5 group"
+              >
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Roles
+                </span>
+                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
+                  <Users className="w-5 h-5" />
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  onNavigate('billetera');
+                }}
+                className="flex items-center gap-2.5 group"
+              >
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Billetera ({formatCOP(balance)})
+                </span>
+                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
+                  <Wallet className="w-5 h-5" />
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  setSheetExpanded(true);
+                  setRouteFilter('all');
+                  showToast('Mostrando todas las rutas de Barranquilla');
+                }}
+                className="flex items-center gap-2.5 group"
+              >
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Rutas
+                </span>
+                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
+                  <Route className="w-5 h-5" />
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  setSheetExpanded(false);
+                  triggerSignal('reset');
+                }}
+                className="flex items-center gap-2.5 group"
+              >
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Explorar mapa
+                </span>
+                <span className="w-11 h-11 rounded-full bg-white text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
+                  <Compass className="w-5 h-5" />
+                </span>
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  onNavigate('billetera');
+                }}
+                className="flex items-center gap-2.5 group"
+              >
+                <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
+                  Ticket QR
+                </span>
+                <span className="w-11 h-11 rounded-full bg-[#0D9488] text-white shadow-lg border-2 border-white flex items-center justify-center">
+                  <QrCode className="w-5 h-5" />
+                </span>
+              </button>
+            </li>
+          </ul>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setFabMenuOpen((open) => !open)}
+          aria-expanded={fabMenuOpen}
+          aria-label={fabMenuOpen ? 'Cerrar menú rápido' : 'Abrir menú de acciones'}
+          className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-[0_8px_24px_rgba(13,148,136,0.45)] border-2 border-white active:scale-95 transition-all cursor-pointer ${
+            fabMenuOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
+          }`}
+        >
+          <Plus
+            className={`w-7 h-7 transition-transform duration-200 ${
+              fabMenuOpen ? 'rotate-45' : ''
+            }`}
+          />
+        </button>
       </nav>
 
       {/* Station Details / Schedule Modal */}

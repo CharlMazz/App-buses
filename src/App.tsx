@@ -153,9 +153,9 @@ export default function App() {
 
   const frameSizeClass =
     device === 'movil'
-      ? 'w-full h-full sm:h-[min(844px,max(740px,100%))] sm:min-h-[740px] sm:max-w-[390px] sm:my-auto sm:rounded-[20px]'
+      ? 'w-full h-full sm:h-[min(844px,100%)] sm:min-h-[540px] sm:max-w-[390px] sm:my-auto sm:rounded-[20px]'
       : device === 'tablet'
-      ? 'w-full h-full sm:h-[min(768px,max(640px,100%))] sm:min-h-[640px] sm:max-w-[1024px] sm:my-auto sm:rounded-[20px]'
+      ? 'w-full h-full sm:h-[min(768px,100%)] sm:min-h-[540px] sm:max-w-[1024px] sm:my-auto sm:rounded-[20px]'
       : 'w-full h-full sm:min-h-[540px] sm:rounded-[12px]';
 
   return (
