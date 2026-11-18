@@ -1074,10 +1074,10 @@ export function PassengerMapScreen({
 
       <nav
         aria-label="Menú rápido de la aplicación"
-        className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-2.5"
+        className="absolute bottom-4 left-4 z-40 flex flex-col items-start gap-2.5"
       >
         {fabMenuOpen && (
-          <ul className="flex flex-col items-end gap-2 mb-0.5">
+          <ul className="flex flex-col items-start gap-2 mb-0.5 pl-1.5">
             <li>
               <button
                 type="button"
@@ -1087,11 +1087,11 @@ export function PassengerMapScreen({
                 }}
                 className="flex items-center gap-2.5 group"
               >
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Roles
-                </span>
                 <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
                   <Users className="w-5 h-5" />
+                </span>
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Roles
                 </span>
               </button>
             </li>
@@ -1104,11 +1104,11 @@ export function PassengerMapScreen({
                 }}
                 className="flex items-center gap-2.5 group"
               >
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Billetera ({formatCOP(balance)})
-                </span>
                 <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
                   <Wallet className="w-5 h-5" />
+                </span>
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Billetera ({formatCOP(balance)})
                 </span>
               </button>
             </li>
@@ -1123,11 +1123,11 @@ export function PassengerMapScreen({
                 }}
                 className="flex items-center gap-2.5 group"
               >
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Rutas
-                </span>
                 <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
                   <Route className="w-5 h-5" />
+                </span>
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Rutas
                 </span>
               </button>
             </li>
@@ -1141,11 +1141,11 @@ export function PassengerMapScreen({
                 }}
                 className="flex items-center gap-2.5 group"
               >
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Explorar mapa
-                </span>
                 <span className="w-11 h-11 rounded-full bg-white text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
                   <Compass className="w-5 h-5" />
+                </span>
+                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
+                  Explorar mapa
                 </span>
               </button>
             </li>
@@ -1158,11 +1158,11 @@ export function PassengerMapScreen({
                 }}
                 className="flex items-center gap-2.5 group"
               >
-                <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
-                  Ticket QR
-                </span>
                 <span className="w-11 h-11 rounded-full bg-[#0D9488] text-white shadow-lg border-2 border-white flex items-center justify-center">
                   <QrCode className="w-5 h-5" />
+                </span>
+                <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
+                  Ticket QR
                 </span>
               </button>
             </li>
