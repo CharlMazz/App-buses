@@ -157,20 +157,20 @@ export function PassengerRoutesScreen({
 
   return (
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
-      {/* Top Search & Map-Based Filter Header */}
-      <header className="shrink-0 z-30 bg-white border-b border-slate-200 px-3.5 py-2.5 space-y-2 shadow-sm">
+      {/* Compact Top Search & Map-Based Filter Header */}
+      <header className="shrink-0 z-30 bg-white border-b border-slate-200 px-3 py-2 space-y-1.5 shadow-xs">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-[#0D9488] text-white flex items-center justify-center shrink-0">
-              <Route className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-[#0D9488] text-white flex items-center justify-center shrink-0">
+              <Route className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-headline text-sm @[420px]:text-base font-bold text-slate-900 truncate">
+              <h1 className="font-headline text-sm font-bold text-slate-900 truncate">
                 Rutas de Buses · BAQ
               </h1>
-              <p className="text-[11px] text-slate-500 truncate">
-                {filteredRoutes.length} de {COMPANY_BUS_ROUTES.length} rutas{' '}
-                {filterByMapBounds ? 'visibles en el mapa' : 'en toda la ciudad'}
+              <p className="text-[10.5px] text-slate-500 truncate">
+                {filteredRoutes.length} de {COMPANY_BUS_ROUTES.length}{' '}
+                {filterByMapBounds ? 'visibles en esta zona del mapa' : 'en toda Barranquilla'}
               </p>
             </div>
           </div>
@@ -179,7 +179,7 @@ export function PassengerRoutesScreen({
             type="button"
             onClick={() => setFilterByMapBounds((v) => !v)}
             aria-pressed={filterByMapBounds}
-            className={`min-h-[34px] px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors shrink-0 ${
+            className={`min-h-[30px] px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors shrink-0 ${
               filterByMapBounds
                 ? 'bg-teal-50 text-[#0D9488] border-[#0D9488]'
                 : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -190,11 +190,11 @@ export function PassengerRoutesScreen({
         </div>
 
         {/* Search + Company Dropdown */}
-        <div className="grid grid-cols-1 @[480px]:grid-cols-12 gap-2">
+        <div className="grid grid-cols-1 @[480px]:grid-cols-12 gap-1.5">
           <div className="@[480px]:col-span-7 relative flex items-center">
             <Search
               aria-hidden="true"
-              className="w-3.5 h-3.5 text-slate-500 absolute left-3 pointer-events-none"
+              className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none"
             />
             <input
               type="text"
@@ -202,16 +202,16 @@ export function PassengerRoutesScreen({
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               placeholder="Buscar ruta, empresa, barrio o vía..."
-              className="w-full h-9 pl-8 pr-8 py-0 leading-normal rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+              className="w-full h-8 pl-8 pr-7 py-0 leading-normal rounded-[8px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
             />
             {searchText && (
               <button
                 type="button"
                 onClick={() => setSearchText('')}
                 aria-label="Limpiar búsqueda"
-                className="p-1 absolute right-2 text-slate-400 hover:text-slate-700"
+                className="p-1 absolute right-1.5 text-slate-400 hover:text-slate-700"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3 h-3" />
               </button>
             )}
           </div>
@@ -221,7 +221,7 @@ export function PassengerRoutesScreen({
               aria-label="Filtrar por empresa"
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
-              className="w-full h-9 px-2.5 py-0 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
+              className="w-full h-8 px-2.5 py-0 rounded-[8px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
             >
               <option value="all">Todas las empresas ({BUS_COMPANIES.length})</option>
               {BUS_COMPANIES.map((c) => (
@@ -242,7 +242,7 @@ export function PassengerRoutesScreen({
                 key={zone.id}
                 type="button"
                 onClick={() => handleSelectZone(zone)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
                   active
                     ? 'bg-slate-900 text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -256,7 +256,7 @@ export function PassengerRoutesScreen({
       </header>
 
       {/* Interactive Map Filtering Routes by Viewport */}
-      <main className="relative flex-1 min-h-[200px] w-full bg-[#E8ECEF] overflow-hidden">
+      <main className="relative flex-1 min-h-[220px] w-full bg-[#E8ECEF] overflow-hidden">
         <BarranquillaRoutesMap
           routes={filteredRoutes}
           selectedRoute={selectedRoute}
@@ -265,13 +265,6 @@ export function PassengerRoutesScreen({
           onSelectRoute={handleSelectRoute}
           onCameraSync={handleCameraSync}
         />
-
-        {/* Map Hint Badge */}
-        {filterByMapBounds && (
-          <div className="absolute top-2.5 left-3 z-20 px-2.5 py-1 rounded-full bg-slate-900/85 text-white text-[11px] font-medium shadow backdrop-blur-sm pointer-events-none">
-            Mueve el mapa para filtrar rutas por zona
-          </div>
-        )}
 
         {/* Map Zoom Controls */}
         <aside
@@ -317,24 +310,28 @@ export function PassengerRoutesScreen({
         </aside>
       </main>
 
-      {/* Bottom Routes Results Drawer */}
+      {/* Compact Bottom Routes Results Drawer */}
       <section
         aria-label="Listado de rutas según el mapa"
-        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[22px] shadow-[0_-8px_28px_rgba(0,0,0,0.12)] border-t border-slate-200 px-3.5 pt-2 pb-4 flex flex-col gap-2 transition-all ${
-          sheetExpanded ? 'max-h-[70%]' : 'max-h-[44%]'
+        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 pt-1.5 pb-3 flex flex-col gap-2 transition-all ${
+          sheetExpanded ? 'max-h-[68%]' : 'max-h-[29%]'
         }`}
       >
         <button
           type="button"
           onClick={() => setSheetExpanded((s) => !s)}
           aria-label="Expandir o contraer lista de rutas"
-          className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
+          className="w-10 h-1 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
         />
 
         <div className="flex items-center justify-between gap-2 shrink-0">
-          <p className="text-xs font-bold text-slate-900">
-            Rutas encontradas ({filteredRoutes.length})
-          </p>
+          <button
+            type="button"
+            onClick={() => setSheetExpanded((s) => !s)}
+            className="text-xs font-bold text-slate-900 hover:text-[#0D9488] transition-colors"
+          >
+            Rutas encontradas ({filteredRoutes.length}) · {sheetExpanded ? 'Contraer' : 'Ver más'}
+          </button>
           {selectedRoute && (
             <button
               type="button"
@@ -346,7 +343,7 @@ export function PassengerRoutesScreen({
           )}
         </div>
 
-        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5 overflow-y-auto pr-0.5 content-start">
+        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2 overflow-y-auto pr-0.5 pb-14 content-start">
           {filteredRoutes.length === 0 ? (
             <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
               <p>No hay rutas visibles en esta área del mapa con los filtros actuales.</p>

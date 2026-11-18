@@ -37,9 +37,15 @@ interface CorridorOverlayProps {
   visible: boolean;
   routeFilter: RouteFilter;
   showTraffic?: boolean;
+  dimmed?: boolean;
 }
 
-function TransitCorridorsOverlay({visible, routeFilter, showTraffic}: CorridorOverlayProps) {
+function TransitCorridorsOverlay({
+  visible,
+  routeFilter,
+  showTraffic,
+  dimmed = false,
+}: CorridorOverlayProps) {
   const map = useMap();
   const mapsLib = useMapsLibrary('maps');
 
@@ -54,9 +60,10 @@ function TransitCorridorsOverlay({visible, routeFilter, showTraffic}: CorridorOv
       const poly = new mapsLib.Polyline({
         path: corridor.path,
         strokeColor: corridor.color,
-        strokeOpacity: corridor.opacity,
-        strokeWeight: corridor.weight,
+        strokeOpacity: dimmed ? 0.22 : Math.min(corridor.opacity, 0.58),
+        strokeWeight: dimmed ? 2.5 : 3.5,
         geodesic: true,
+        zIndex: 8,
         map,
       });
       polylines.push(poly);
@@ -67,7 +74,7 @@ function TransitCorridorsOverlay({visible, routeFilter, showTraffic}: CorridorOv
         poly.setMap(null);
       }
     };
-  }, [map, mapsLib, visible, routeFilter]);
+  }, [map, mapsLib, visible, routeFilter, dimmed]);
 
   useEffect(() => {
     if (!map || !mapsLib || !showTraffic) return;
@@ -91,8 +98,8 @@ function SelectedRouteOverlay({route}: {route: CompanyRouteItem | null | undefin
     const casing = new mapsLib.Polyline({
       path: route.path,
       strokeColor: '#FFFFFF',
-      strokeOpacity: 0.92,
-      strokeWeight: 9,
+      strokeOpacity: 0.95,
+      strokeWeight: 8,
       geodesic: true,
       zIndex: 38,
       map,
@@ -102,7 +109,7 @@ function SelectedRouteOverlay({route}: {route: CompanyRouteItem | null | undefin
       path: route.path,
       strokeColor: route.color,
       strokeOpacity: 0.96,
-      strokeWeight: 6,
+      strokeWeight: 5,
       geodesic: true,
       zIndex: 40,
       map,
@@ -134,10 +141,10 @@ function RadiusCircleOverlay({
       center,
       radius: radiusMeters,
       strokeColor: '#0D9488',
-      strokeOpacity: 0.55,
+      strokeOpacity: 0.35,
       strokeWeight: 1.5,
       fillColor: '#14B8A6',
-      fillOpacity: 0.08,
+      fillOpacity: 0.04,
       clickable: false,
       zIndex: 5,
       map,
@@ -166,7 +173,7 @@ function TripConnectionOverlay({
 
     const line = new mapsLib.Polyline({
       path: [origin, destination],
-      strokeColor: '#0F172A',
+      strokeColor: '#0D9488',
       strokeOpacity: 0,
       strokeWeight: 3,
       geodesic: true,
@@ -180,7 +187,7 @@ function TripConnectionOverlay({
             scale: 3,
           },
           offset: '0',
-          repeat: '14px',
+          repeat: '12px',
         },
       ],
       map,
@@ -342,6 +349,7 @@ export function BarranquillaPassengerMap({
   const showT01 = routeFilter === 'all' || routeFilter === 'troncal';
   const showA12 = routeFilter === 'all' || routeFilter === 'alimentador';
   const activeOrigin = originMarker?.position ?? userPosition;
+  const visibleNearbyMarkers = nearbyBuses.slice(0, 5);
 
   return (
     <div className="absolute inset-0 w-full h-full">
@@ -349,6 +357,7 @@ export function BarranquillaPassengerMap({
       <GoogleMap
         id="baq-passenger-map"
         mapId={DEMO_MAP_ID}
+        colorScheme="LIGHT"
         defaultCenter={BARRANQUILLA_PASSENGER_CENTER}
         defaultZoom={15}
         minZoom={11}
@@ -376,12 +385,13 @@ export function BarranquillaPassengerMap({
           visible={showCorridors}
           routeFilter={routeFilter}
           showTraffic={showTrafficLayer}
+          dimmed={Boolean(selectedCompanyRoute)}
         />
         <RadiusCircleOverlay center={activeOrigin} radiusMeters={userRadiusMeters} />
         <TripConnectionOverlay origin={activeOrigin} destination={selectedDestination?.position} />
         <SelectedRouteOverlay route={selectedCompanyRoute} />
 
-        {/* Stations: La Catorce, Esthercita Forero, Portal del Prado */}
+        {/* Clean Station Dots (Primary labeled, secondary compact dots) */}
         {TRANSIT_STATIONS.map((station) => (
           <AdvancedMarker
             key={station.id}
@@ -398,28 +408,23 @@ export function BarranquillaPassengerMap({
             >
               {station.isPrimary ? (
                 <>
-                  <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-[#2563EB]/40 group-hover:scale-110 transition-transform">
-                    <Store className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-md border-2 border-white group-hover:scale-110 transition-transform">
+                    <Store className="w-3.5 h-3.5" />
                   </div>
-                  <span className="mt-1 px-2 py-0.5 rounded bg-slate-900 text-white text-[11px] font-semibold shadow whitespace-nowrap">
+                  <span className="mt-0.5 px-1.5 py-0.5 rounded bg-white/95 text-slate-900 border border-slate-200 text-[10px] font-semibold shadow-sm whitespace-nowrap">
                     Est. La Catorce
                   </span>
                 </>
               ) : (
-                <>
-                  <div className="w-6 h-6 rounded-full bg-white text-[#2563EB] flex items-center justify-center shadow border-2 border-[#2563EB] group-hover:scale-110 transition-transform">
-                    <span className="w-2 h-2 rounded-full bg-[#2563EB]" />
-                  </div>
-                  <span className="mt-1 px-1.5 py-0.5 rounded bg-white text-slate-800 text-[10px] font-medium border border-slate-200 shadow-sm whitespace-nowrap">
-                    {station.name}
-                  </span>
-                </>
+                <div className="w-4 h-4 rounded-full bg-white text-[#2563EB] flex items-center justify-center shadow border-2 border-[#2563EB] group-hover:scale-125 transition-transform">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
+                </div>
               )}
             </button>
           </AdvancedMarker>
         ))}
 
-        {/* Live Bus T-01 */}
+        {/* Live Bus T-01 (Compact crisp marker) */}
         {showT01 && (
           <AdvancedMarker
             position={busT01Position}
@@ -427,30 +432,20 @@ export function BarranquillaPassengerMap({
             onClick={() => {
               if (!isDraggingRef.current) onSelectBus('T-01');
             }}
-            title="Bus #B-304 · Troncal T-01"
+            title="Bus #B-304 · Troncal T-01 (2 min)"
           >
             <button
               type="button"
-              className="flex items-center gap-1.5 cursor-pointer group focus:outline-none"
+              className="px-2 py-1 rounded-full bg-[#2563EB] text-white shadow-lg border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none"
             >
-              <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-xl border-2 border-white group-hover:scale-110 transition-transform">
-                  <Bus className="w-4 h-4" />
-                </div>
-                <span className="absolute -inset-1 rounded-full bg-[#2563EB]/35 animate-ping pointer-events-none" />
-              </div>
-              <div className="px-2 py-0.5 rounded-md bg-slate-900 shadow-lg border border-slate-700 flex flex-col text-left">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-headline text-[11px] font-bold text-white">T-01</span>
-                  <span className="w-2 h-2 rounded-full bg-[#D97706]" title="42% Ocupación" />
-                </div>
-                <span className="font-mono text-[10px] font-semibold text-emerald-400">2 min</span>
-              </div>
+              <Bus className="w-3.5 h-3.5" />
+              <span className="font-headline text-[10px] font-bold">T-01</span>
+              <span className="font-mono text-[10px] text-blue-100">2m</span>
             </button>
           </AdvancedMarker>
         )}
 
-        {/* Live Bus A-12 */}
+        {/* Live Bus A-12 (Compact crisp marker) */}
         {showA12 && (
           <AdvancedMarker
             position={busA12Position}
@@ -458,25 +453,21 @@ export function BarranquillaPassengerMap({
             onClick={() => {
               if (!isDraggingRef.current) onSelectBus('A-12');
             }}
-            title="Bus #B-118 · Alimentador A-12"
+            title="Bus #B-118 · Alimentador A-12 (6 min)"
           >
             <button
               type="button"
-              className="flex items-center gap-1.5 cursor-pointer group focus:outline-none"
+              className="px-2 py-1 rounded-full bg-[#16A34A] text-white shadow-md border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none"
             >
-              <div className="w-9 h-9 rounded-full bg-[#16A34A] text-white flex items-center justify-center shadow-lg border-2 border-white group-hover:scale-110 transition-transform">
-                <Bus className="w-4 h-4" />
-              </div>
-              <div className="px-2 py-0.5 rounded bg-slate-900 shadow border border-slate-700 flex items-center gap-1.5">
-                <span className="font-headline text-[11px] font-bold text-emerald-400">A-12</span>
-                <span className="font-mono text-[10px] text-slate-300">6 min</span>
-              </div>
+              <Bus className="w-3 h-3" />
+              <span className="font-headline text-[10px] font-bold">A-12</span>
+              <span className="font-mono text-[10px] text-emerald-100">6m</span>
             </button>
           </AdvancedMarker>
         )}
 
-        {/* Dynamic Live Nearby Company Buses */}
-        {nearbyBuses.map((bus) => (
+        {/* Compact Nearby Company Buses (Top 5 closest to avoid map clutter) */}
+        {visibleNearbyMarkers.map((bus) => (
           <AdvancedMarker
             key={bus.id}
             position={bus.position}
@@ -488,17 +479,15 @@ export function BarranquillaPassengerMap({
           >
             <button
               type="button"
-              className="flex items-center gap-1 group cursor-pointer focus:outline-none"
+              className="px-1.5 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 shadow-md border border-slate-300 flex items-center gap-1 cursor-pointer hover:scale-105 transition-all focus:outline-none"
             >
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-teal-300 flex items-center justify-center shadow-lg border-2 border-white group-hover:scale-110 transition-transform">
-                <Bus className="w-3.5 h-3.5" />
-              </div>
-              <div className="px-1.5 py-0.5 rounded bg-white/95 text-slate-900 shadow border border-slate-200 text-left leading-tight">
-                <p className="font-headline text-[10px] font-bold whitespace-nowrap">{bus.code}</p>
-                <p className="font-mono text-[9px] text-teal-700 font-semibold whitespace-nowrap">
-                  {bus.etaMinutes}m
-                </p>
-              </div>
+              <Bus className="w-3 h-3 text-[#0D9488]" />
+              <span className="font-headline text-[10px] font-bold whitespace-nowrap">
+                {bus.code}
+              </span>
+              <span className="font-mono text-[9px] text-emerald-700 font-bold">
+                {bus.etaMinutes}m
+              </span>
             </button>
           </AdvancedMarker>
         ))}
@@ -510,20 +499,14 @@ export function BarranquillaPassengerMap({
             zIndex={75}
             title={`${selectedCompanyRoute.company} · Ruta ${selectedCompanyRoute.code}`}
           >
-            <div className="flex flex-col items-center">
-              <div className="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-2">
-                <span className="w-6 h-6 rounded-md bg-teal-600 flex items-center justify-center shrink-0">
-                  <Bus className="w-3.5 h-3.5 text-white" />
-                </span>
-                <div className="text-left leading-tight">
-                  <p className="font-headline text-xs font-bold text-white whitespace-nowrap">
-                    {selectedCompanyRoute.code}
-                  </p>
-                  <p className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
-                    {selectedCompanyRoute.company}
-                  </p>
-                </div>
-              </div>
+            <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
+              <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+              <span className="font-headline text-xs font-bold whitespace-nowrap">
+                {selectedCompanyRoute.code}
+              </span>
+              <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
+                · {selectedCompanyRoute.company}
+              </span>
             </div>
           </AdvancedMarker>
         )}
@@ -536,10 +519,10 @@ export function BarranquillaPassengerMap({
             title={`Partida: ${originMarker.name}`}
           >
             <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xl border-2 border-white">
-                <Navigation className="w-4 h-4" />
+              <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-white">
+                <Navigation className="w-3.5 h-3.5" />
               </div>
-              <span className="mt-1 px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold shadow border border-white max-w-[150px] truncate">
+              <span className="mt-0.5 px-2 py-0.5 rounded bg-emerald-700 text-white text-[10px] font-bold shadow border border-white max-w-[140px] truncate">
                 A · {originMarker.name}
               </span>
             </div>
@@ -554,26 +537,21 @@ export function BarranquillaPassengerMap({
             title={`Destino: ${selectedDestination.name}`}
           >
             <div className="flex flex-col items-center">
-              <div className="w-9 h-9 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center shadow-xl border-2 border-white ring-2 ring-teal-500/40">
-                <MapPin className="w-5 h-5" />
+              <div className="w-8 h-8 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center shadow-xl border-2 border-white">
+                <MapPin className="w-4 h-4" />
               </div>
-              <span className="mt-1 px-2.5 py-0.5 rounded-md bg-slate-900 text-white text-[11px] font-semibold shadow-lg border border-slate-700 max-w-[170px] truncate">
+              <span className="mt-0.5 px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-semibold shadow-lg border border-slate-700 max-w-[155px] truncate">
                 B · {selectedDestination.name}
               </span>
             </div>
           </AdvancedMarker>
         )}
 
-        {/* User Current Location */}
+        {/* User Current Location (Clean blue-teal beacon) */}
         <AdvancedMarker position={userPosition} zIndex={70} title="Tu ubicación GPS">
-          <div className="flex flex-col items-center pointer-events-none">
-            <div className="relative flex items-center justify-center">
-              <span className="w-8 h-8 rounded-full bg-[#0D9488]/30 animate-ping absolute" />
-              <div className="w-4 h-4 rounded-full bg-[#0D9488] border-2 border-white shadow-md" />
-            </div>
-            <span className="mt-1 px-2 py-0.5 rounded-full bg-slate-900 text-white text-[11px] font-medium shadow whitespace-nowrap">
-              Tú aquí
-            </span>
+          <div className="relative flex items-center justify-center pointer-events-none">
+            <span className="w-7 h-7 rounded-full bg-[#0D9488]/25 animate-ping absolute" />
+            <div className="w-4 h-4 rounded-full bg-[#0D9488] border-2 border-white shadow-md" />
           </div>
         </AdvancedMarker>
       </GoogleMap>
@@ -635,15 +613,15 @@ function RoutesCatalogPolylines({
     if (!map || !mapsLib) return;
 
     const polylines: google.maps.Polyline[] = [];
-    const subset = routes.slice(0, 36);
+    const subset = routes.slice(0, 16);
 
     for (const route of subset) {
       if (route.path.length < 2 || route.id === selectedRouteId) continue;
       const poly = new mapsLib.Polyline({
         path: route.path,
         strokeColor: route.color,
-        strokeOpacity: selectedRouteId ? 0.28 : 0.62,
-        strokeWeight: 3.5,
+        strokeOpacity: selectedRouteId ? 0.14 : 0.44,
+        strokeWeight: selectedRouteId ? 2 : 3,
         geodesic: true,
         clickable: true,
         zIndex: 12,
@@ -683,7 +661,7 @@ export function BarranquillaRoutesMap({
   onCameraSync,
 }: BarranquillaRoutesMapProps) {
   const isDraggingRef = useRef(false);
-  const markerRoutes = routes.slice(0, 18);
+  const markerRoutes = selectedRoute ? [] : routes.slice(0, 12);
 
   return (
     <div className="absolute inset-0 w-full h-full">
@@ -691,6 +669,7 @@ export function BarranquillaRoutesMap({
       <GoogleMap
         id="baq-routes-map"
         mapId={DEMO_MAP_ID}
+        colorScheme="LIGHT"
         defaultCenter={ROUTES_DEFAULT_CENTER}
         defaultZoom={13}
         minZoom={11}
@@ -722,29 +701,25 @@ export function BarranquillaRoutesMap({
         />
         <SelectedRouteOverlay route={selectedRoute} />
 
-        {markerRoutes.map((route) => {
-          const isSelected = selectedRoute?.id === route.id;
-          if (isSelected) return null;
-          return (
-            <AdvancedMarker
-              key={`rm-${route.id}`}
-              position={route.center}
-              zIndex={20}
-              onClick={() => {
-                if (!isDraggingRef.current) onSelectRoute(route);
-              }}
-              title={`${route.code} · ${route.company}`}
+        {markerRoutes.map((route) => (
+          <AdvancedMarker
+            key={`rm-${route.id}`}
+            position={route.center}
+            zIndex={20}
+            onClick={() => {
+              if (!isDraggingRef.current) onSelectRoute(route);
+            }}
+            title={`${route.code} · ${route.company}`}
+          >
+            <button
+              type="button"
+              className="px-1.5 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 border border-slate-300 shadow-sm text-[10px] font-headline font-bold flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <button
-                type="button"
-                className="px-2 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 border border-slate-300 shadow-md text-[10px] font-headline font-bold flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Bus className="w-3 h-3 text-[#0D9488]" />
-                <span>{route.code}</span>
-              </button>
-            </AdvancedMarker>
-          );
-        })}
+              <Bus className="w-3 h-3 text-[#0D9488] shrink-0" />
+              <span>{route.code}</span>
+            </button>
+          </AdvancedMarker>
+        ))}
 
         {selectedRoute && (
           <AdvancedMarker
@@ -752,18 +727,14 @@ export function BarranquillaRoutesMap({
             zIndex={75}
             title={`${selectedRoute.company} · Ruta ${selectedRoute.code}`}
           >
-            <div className="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-2">
-              <span className="w-6 h-6 rounded-md bg-teal-600 flex items-center justify-center shrink-0">
-                <Bus className="w-3.5 h-3.5 text-white" />
+            <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
+              <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+              <span className="font-headline text-xs font-bold whitespace-nowrap">
+                {selectedRoute.code}
               </span>
-              <div className="text-left leading-tight">
-                <p className="font-headline text-xs font-bold text-white whitespace-nowrap">
-                  {selectedRoute.code}
-                </p>
-                <p className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
-                  {selectedRoute.company}
-                </p>
-              </div>
+              <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
+                · {selectedRoute.company}
+              </span>
             </div>
           </AdvancedMarker>
         )}

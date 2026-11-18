@@ -22,6 +22,7 @@ import {
   QrCode,
   Route,
   Search,
+  SlidersHorizontal,
   Store,
   User,
   Users,
@@ -161,6 +162,7 @@ export function PassengerMapScreen({
 
   const [showTrafficLayer, setShowTrafficLayer] = useState(false);
   const [showCorridors, setShowCorridors] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
@@ -511,14 +513,14 @@ export function PassengerMapScreen({
 
   return (
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
-      {/* Top Floating Trip Planner: Punto de partida + Destino */}
-      <header className="absolute top-0 left-0 right-0 z-30 px-3 pt-2.5 pb-2 bg-gradient-to-b from-slate-900/55 via-slate-900/15 to-transparent pointer-events-none">
+      {/* Top Floating Trip Planner: Punto de partida + Destino (clean, no dark overlay) */}
+      <header className="absolute top-0 left-0 right-0 z-30 px-3 pt-2.5 pointer-events-none">
         <div ref={tripCardRef} className="relative pointer-events-auto">
           {tripCardCollapsed ? (
             <button
               type="button"
               onClick={() => setTripCardCollapsed(false)}
-              className="w-full px-3.5 py-2.5 rounded-[12px] bg-white shadow-xl border border-slate-200 flex items-center justify-between gap-2 text-left"
+              className="w-full px-3 py-2 rounded-[12px] bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 flex items-center justify-between gap-2 text-left"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Compass className="w-4 h-4 text-[#0D9488] shrink-0" />
@@ -530,13 +532,13 @@ export function PassengerMapScreen({
               <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
             </button>
           ) : (
-            <div className="bg-white rounded-[14px] shadow-xl border border-slate-200 p-2 space-y-1.5">
+            <div className="bg-white/95 backdrop-blur-sm rounded-[14px] shadow-lg border border-slate-200 p-1.5 space-y-1">
               {/* Row 1: Punto de partida */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <div className="relative flex-1 flex items-center">
                   <span
                     aria-hidden="true"
-                    className="w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-3 pointer-events-none"
+                    className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-2.5 pointer-events-none"
                   />
                   <input
                     type="text"
@@ -556,9 +558,9 @@ export function PassengerMapScreen({
                       }
                     }}
                     placeholder="Punto de partida (ej. Cra 46, Prado...)"
-                    className="w-full h-9 pl-8 pr-16 py-0 leading-normal rounded-[9px] bg-slate-100 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                    className="w-full h-8 pl-7 pr-14 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
                   />
-                  <div className="absolute right-1.5 flex items-center gap-0.5">
+                  <div className="absolute right-1 flex items-center gap-0.5">
                     {originQuery && originQuery !== 'Mi ubicación actual (GPS)' && (
                       <button
                         type="button"
@@ -569,7 +571,7 @@ export function PassengerMapScreen({
                         aria-label="Restablecer punto de partida a GPS"
                         className="p-1 text-slate-400 hover:text-slate-700"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3 h-3" />
                       </button>
                     )}
                     <button
@@ -577,12 +579,12 @@ export function PassengerMapScreen({
                       onClick={handleLocateUser}
                       title="Usar mi ubicación GPS actual"
                       aria-label="Usar mi ubicación GPS actual"
-                      className="w-7 h-7 rounded-md bg-white border border-slate-200 text-[#0D9488] hover:bg-teal-50 flex items-center justify-center shadow-xs"
+                      className="w-6 h-6 rounded bg-white border border-slate-200 text-[#0D9488] hover:bg-teal-50 flex items-center justify-center"
                     >
                       {isLocatingUser ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-3 h-3 animate-spin" />
                       ) : (
-                        <LocateFixed className="w-3.5 h-3.5" />
+                        <LocateFixed className="w-3 h-3" />
                       )}
                     </button>
                   </div>
@@ -593,18 +595,18 @@ export function PassengerMapScreen({
                   onClick={handleSwapOriginDestination}
                   aria-label="Intercambiar partida y destino"
                   title="Intercambiar partida y destino"
-                  className="w-9 h-9 rounded-[9px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                  className="w-8 h-8 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
                 >
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </button>
               </div>
 
               {/* Row 2: Destino */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <div className="relative flex-1 flex items-center">
                   <MapPin
                     aria-hidden="true"
-                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2.5 pointer-events-none"
+                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2 pointer-events-none"
                   />
                   <input
                     type="text"
@@ -620,7 +622,7 @@ export function PassengerMapScreen({
                       }
                     }}
                     placeholder="¿Cuál es tu destino en Barranquilla?"
-                    className="w-full h-9 pl-8 pr-8 py-0 leading-normal rounded-[9px] bg-slate-100 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                    className="w-full h-8 pl-7 pr-7 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
                   />
                   {destQuery && (
                     <button
@@ -631,9 +633,9 @@ export function PassengerMapScreen({
                         setOnlyToDestination(false);
                       }}
                       aria-label="Limpiar destino"
-                      className="p-1 absolute right-1.5 text-slate-400 hover:text-slate-700"
+                      className="p-1 absolute right-1 text-slate-400 hover:text-slate-700"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
                   )}
                 </div>
@@ -643,9 +645,9 @@ export function PassengerMapScreen({
                   onClick={() => setTripCardCollapsed(true)}
                   aria-label="Minimizar barra de ruta"
                   title="Minimizar para ver más mapa"
-                  className="w-9 h-9 rounded-[9px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                  className="w-8 h-8 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
                 >
-                  <ChevronUp className="w-4 h-4" />
+                  <ChevronUp className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
@@ -778,14 +780,14 @@ export function PassengerMapScreen({
         <aside
           aria-label="Controles del mapa"
           className={`absolute right-3 z-20 flex flex-col gap-1.5 transition-all ${
-            tripCardCollapsed ? 'top-[62px]' : 'top-[108px]'
+            tripCardCollapsed ? 'top-[56px]' : 'top-[94px]'
           }`}
         >
           <button
             type="button"
             onClick={handleLocateUser}
             aria-label="Ubicar mi posición GPS"
-            className="w-10 h-10 rounded-full bg-white text-slate-900 shadow-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
+            className="w-9 h-9 rounded-full bg-white/95 backdrop-blur-sm text-slate-900 shadow-md border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
           >
             {isLocatingUser ? (
               <Loader2 className="w-4 h-4 animate-spin text-[#0D9488]" />
@@ -797,10 +799,10 @@ export function PassengerMapScreen({
             type="button"
             onClick={handleToggleLayers}
             aria-label="Capas de tráfico"
-            className={`w-10 h-10 rounded-full shadow-lg border flex items-center justify-center active:scale-95 transition-all ${
+            className={`w-9 h-9 rounded-full shadow-md border flex items-center justify-center active:scale-95 transition-all ${
               showTrafficLayer
                 ? 'bg-slate-900 text-teal-400 border-slate-700'
-                : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'
+                : 'bg-white/95 backdrop-blur-sm text-slate-900 border-slate-200 hover:bg-slate-50'
             }`}
           >
             <Layers className="w-4 h-4" />
@@ -809,7 +811,7 @@ export function PassengerMapScreen({
             type="button"
             onClick={() => setShowReportModal(true)}
             aria-label="Reportar incidente"
-            className="w-10 h-10 rounded-full bg-white text-slate-900 shadow-lg border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
+            className="w-9 h-9 rounded-full bg-white/95 backdrop-blur-sm text-slate-900 shadow-md border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
           >
             <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
           </button>
@@ -817,14 +819,14 @@ export function PassengerMapScreen({
           <div
             role="group"
             aria-label="Zoom del mapa"
-            className="w-10 rounded-full bg-white text-slate-900 shadow-lg border border-slate-200 flex flex-col overflow-hidden"
+            className="w-9 rounded-full bg-white/95 backdrop-blur-sm text-slate-900 shadow-md border border-slate-200 flex flex-col overflow-hidden"
           >
             <button
               type="button"
               aria-label="Acercar"
               disabled={zoomState.zoom >= 19}
               onClick={() => triggerSignal('zoomIn')}
-              className="w-10 h-8 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
+              className="w-9 h-7 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -833,7 +835,7 @@ export function PassengerMapScreen({
               aria-label="Alejar"
               disabled={zoomState.zoom <= 11}
               onClick={() => triggerSignal('zoomOut')}
-              className="w-10 h-8 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
+              className="w-9 h-7 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
@@ -842,7 +844,7 @@ export function PassengerMapScreen({
               aria-label="Restablecer vista"
               disabled={zoomState.isAtDefault}
               onClick={() => triggerSignal('reset')}
-              className="w-10 h-8 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
+              className="w-9 h-7 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
@@ -850,126 +852,150 @@ export function PassengerMapScreen({
         </aside>
       </main>
 
-      {/* Bottom Sliding Sheet: Nearby Live Buses & Real-Time Routes */}
+      {/* Compact Bottom Sliding Sheet (Gives ~72% viewport to the map by default) */}
       <section
         aria-label="Buses y rutas cercanas en tiempo real"
-        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[24px] shadow-[0_-8px_30px_rgba(0,0,0,0.12)] border-t border-slate-200 px-3.5 pt-2 pb-4 flex flex-col gap-2 transition-all ${
-          sheetExpanded ? 'max-h-[68%]' : 'max-h-[42%]'
+        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 pt-1.5 pb-3 flex flex-col gap-2 transition-all ${
+          sheetExpanded ? 'max-h-[66%]' : showFilters ? 'max-h-[42%]' : 'max-h-[26%]'
         }`}
       >
         <button
           type="button"
           onClick={() => setSheetExpanded((s) => !s)}
           aria-label="Expandir o contraer buses cercanos"
-          className="w-12 h-1.5 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
+          className="w-10 h-1 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
         />
 
-        {/* Header Row: Live Nearby Summary */}
+        {/* Compact Header Row */}
         <div className="flex items-center justify-between gap-2 shrink-0">
-          <div className="min-w-0">
-            <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>En tiempo real · {totalNearbyCount} cerca</span>
+          <button
+            type="button"
+            onClick={() => setSheetExpanded((s) => !s)}
+            className="min-w-0 text-left"
+          >
+            <span className="text-[10.5px] font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>
+                {totalNearbyCount} buses cerca · {radiusFilter ? `${radiusFilter >= 1000 ? `${radiusFilter / 1000} km` : `${radiusFilter} m`}` : 'Toda BAQ'}
+              </span>
             </span>
-            <h2 className="font-headline text-sm @[420px]:text-base font-bold text-slate-900 truncate flex items-center gap-1.5">
-              <Navigation className="w-3.5 h-3.5 text-[#0D9488] shrink-0" />
+            <h2 className="font-headline text-xs @[420px]:text-sm font-bold text-slate-900 truncate flex items-center gap-1">
+              <Navigation className="w-3 h-3 text-[#0D9488] shrink-0" />
               <span className="truncate">
                 {originMarker ? originMarker.name : 'Alrededor de tu ubicación'}
               </span>
             </h2>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onNavigate('rutas')}
-            className="min-h-[34px] px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold flex items-center gap-1 shrink-0"
-          >
-            <Route className="w-3.5 h-3.5 text-[#0D9488]" />
-            <span>Ver Rutas</span>
           </button>
-        </div>
 
-        {/* Real-time Radius & Destination Filter Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 pb-0.5">
-          {RADIUS_OPTIONS.map((opt) => {
-            const active = radiusFilter === opt.value;
-            return (
-              <button
-                key={opt.label}
-                type="button"
-                onClick={() => setRadiusFilter(opt.value)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                  active
-                    ? 'bg-[#0D9488] text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {opt.value === null ? opt.label : `Radio ${opt.label}`}
-              </button>
-            );
-          })}
-
-          {selectedDestination && (
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={() => setOnlyToDestination((v) => !v)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 border transition-colors ${
-                onlyToDestination
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100'
+              onClick={() => setShowFilters((v) => !v)}
+              aria-expanded={showFilters}
+              className={`min-h-[30px] px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition-colors ${
+                showFilters || selectedCompany !== 'all' || nearbyFilterText || onlyToDestination
+                  ? 'bg-teal-50 text-[#0D9488] border-[#0D9488]'
+                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
               }`}
             >
-              Hacia destino ✓
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Filtros</span>
             </button>
-          )}
-        </div>
-
-        {/* Company & Quick Nearby Text Filter */}
-        <div className="grid grid-cols-1 @[480px]:grid-cols-12 gap-2 shrink-0">
-          <div className="@[480px]:col-span-5">
-            <select
-              aria-label="Filtrar buses cercanos por empresa"
-              value={selectedCompany}
-              onChange={(e) => setSelectedCompany(e.target.value)}
-              className="w-full h-9 px-2.5 py-0 rounded-[10px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
+            <button
+              type="button"
+              onClick={() => onNavigate('rutas')}
+              className="min-h-[30px] px-2.5 py-1 rounded-full bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1 hover:bg-slate-800"
             >
-              <option value="all">Todas las empresas ({BUS_COMPANIES.length})</option>
-              {BUS_COMPANIES.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="@[480px]:col-span-7 relative flex items-center">
-            <Search
-              aria-hidden="true"
-              className="w-3.5 h-3.5 text-slate-500 absolute left-3 pointer-events-none"
-            />
-            <input
-              type="text"
-              aria-label="Filtrar rutas cercanas"
-              value={nearbyFilterText}
-              onFocus={() => setSheetExpanded(true)}
-              onChange={(e) => setNearbyFilterText(e.target.value)}
-              placeholder="Filtrar buses o rutas cercanas..."
-              className="w-full h-9 pl-8 pr-8 py-0 leading-normal rounded-[10px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
-            />
-            {nearbyFilterText && (
-              <button
-                type="button"
-                onClick={() => setNearbyFilterText('')}
-                aria-label="Limpiar filtro"
-                className="p-1 absolute right-2 text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+              <Route className="w-3 h-3" />
+              <span>Rutas</span>
+            </button>
           </div>
         </div>
 
-        {/* Scrollable Nearby Buses & Routes Cards */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2.5 overflow-y-auto pr-0.5 content-start">
+        {/* Collapsible Filters Panel */}
+        {showFilters && (
+          <div className="space-y-1.5 pt-1 border-t border-slate-100 shrink-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+              {RADIUS_OPTIONS.map((opt) => {
+                const active = radiusFilter === opt.value;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setRadiusFilter(opt.value)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                      active
+                        ? 'bg-[#0D9488] text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {opt.value === null ? opt.label : `Radio ${opt.label}`}
+                  </button>
+                );
+              })}
+
+              {selectedDestination && (
+                <button
+                  type="button"
+                  onClick={() => setOnlyToDestination((v) => !v)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 border transition-colors ${
+                    onlyToDestination
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-teal-50 text-teal-800 border-teal-200 hover:bg-teal-100'
+                  }`}
+                >
+                  Hacia destino ✓
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 @[480px]:grid-cols-12 gap-1.5">
+              <div className="@[480px]:col-span-5">
+                <select
+                  aria-label="Filtrar buses cercanos por empresa"
+                  value={selectedCompany}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                  className="w-full h-8 px-2.5 py-0 rounded-[8px] bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488]"
+                >
+                  <option value="all">Todas ({BUS_COMPANIES.length} empresas)</option>
+                  {BUS_COMPANIES.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="@[480px]:col-span-7 relative flex items-center">
+                <Search
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  aria-label="Filtrar rutas cercanas"
+                  value={nearbyFilterText}
+                  onFocus={() => setSheetExpanded(true)}
+                  onChange={(e) => setNearbyFilterText(e.target.value)}
+                  placeholder="Filtrar bus o ruta..."
+                  className="w-full h-8 pl-8 pr-7 py-0 leading-normal rounded-[8px] bg-slate-100 border border-slate-200 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                />
+                {nearbyFilterText && (
+                  <button
+                    type="button"
+                    onClick={() => setNearbyFilterText('')}
+                    aria-label="Limpiar filtro"
+                    className="p-1 absolute right-1.5 text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Scrollable Nearby Buses & Routes Cards (with bottom clearance for FAB) */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2 overflow-y-auto pr-0.5 pb-14 content-start">
           {totalNearbyCount === 0 ? (
             <div className="col-span-full py-5 text-center text-xs text-slate-500 space-y-2">
               <p>No hay buses dentro de este radio con los filtros aplicados.</p>
