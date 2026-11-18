@@ -194,7 +194,7 @@ export function PassengerRoutesScreen({
           <div className="@[480px]:col-span-7 relative flex items-center">
             <Search
               aria-hidden="true"
-              className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none"
+              className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
             />
             <input
               type="text"

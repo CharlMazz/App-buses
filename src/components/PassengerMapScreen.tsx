@@ -538,7 +538,7 @@ export function PassengerMapScreen({
                 <div className="relative flex-1 flex items-center">
                   <span
                     aria-hidden="true"
-                    className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-2.5 pointer-events-none"
+                    className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-2.5 z-10 pointer-events-none"
                   />
                   <input
                     type="text"
@@ -606,7 +606,7 @@ export function PassengerMapScreen({
                 <div className="relative flex-1 flex items-center">
                   <MapPin
                     aria-hidden="true"
-                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2 pointer-events-none"
+                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2 z-10 pointer-events-none"
                   />
                   <input
                     type="text"
@@ -968,7 +968,7 @@ export function PassengerMapScreen({
               <div className="@[480px]:col-span-7 relative flex items-center">
                 <Search
                   aria-hidden="true"
-                  className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none"
+                  className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
                 />
                 <input
                   type="text"

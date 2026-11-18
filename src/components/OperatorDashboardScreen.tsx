@@ -260,6 +260,13 @@ export function OperatorDashboardScreen({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onNavigate('mapa')}
+              className="md:hidden px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-semibold"
+            >
+              Volver a Pasajero
+            </button>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-300">
               <MapPin className="w-3.5 h-3.5 text-teal-400" />
               <span>Distrito Barranquilla</span>
