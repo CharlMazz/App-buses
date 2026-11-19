@@ -204,6 +204,7 @@ export default function App() {
             )}
             {screen === 'conductor' && (
               <DriverCockpitScreen
+                balance={balance}
                 extraPax={extraPax}
                 incomingBroadcast={incomingBroadcast}
                 onSimulateBoarding={handleSimulateBoarding}
@@ -213,6 +214,7 @@ export default function App() {
             )}
             {screen === 'operador' && (
               <OperatorDashboardScreen
+                balance={balance}
                 extraPax={extraPax}
                 incidents={incidents}
                 onBroadcast={handleBroadcast}

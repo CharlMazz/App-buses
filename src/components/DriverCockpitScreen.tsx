@@ -17,8 +17,10 @@ import {
 } from 'lucide-react';
 import {DRIVER_ROUTE_STOPS, formatCOP} from '../data/barranquillaTransit';
 import type {ScreenId} from '../types/transit';
+import {QuickAppNav} from './QuickAppNav';
 
 interface DriverCockpitScreenProps {
+  balance: number;
   extraPax: number;
   incomingBroadcast: {text: string; nonce: number} | null;
   onSimulateBoarding: () => void;
@@ -27,6 +29,7 @@ interface DriverCockpitScreenProps {
 }
 
 export function DriverCockpitScreen({
+  balance,
   extraPax,
   incomingBroadcast,
   onSimulateBoarding,
@@ -123,8 +126,9 @@ export function DriverCockpitScreen({
   };
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-slate-950 text-slate-100 select-none p-3 sm:p-5 md:p-6">
-      <div className="max-w-[1180px] mx-auto min-h-full bg-slate-900 rounded-[20px] border border-slate-800 shadow-2xl flex flex-col justify-between overflow-hidden">
+    <div className="relative w-full h-full bg-slate-950 text-slate-100 select-none overflow-hidden">
+      <div className="w-full h-full overflow-y-auto p-3 sm:p-5 md:p-6 pb-20">
+        <div className="max-w-[1180px] mx-auto min-h-full bg-slate-900 rounded-[20px] border border-slate-800 shadow-2xl flex flex-col justify-between overflow-hidden">
         {/* Top System Telemetry Bar */}
         <header className="bg-slate-950 border-b border-slate-800 px-5 md:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4">
@@ -499,6 +503,13 @@ export function DriverCockpitScreen({
           </div>
         </div>
       )}
+      </div>
+
+      <QuickAppNav
+        currentScreen="conductor"
+        balance={balance}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }

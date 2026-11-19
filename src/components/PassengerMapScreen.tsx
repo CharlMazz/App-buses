@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
   AlertTriangle,
-  ArrowRight,
   ArrowUpDown,
   Bell,
   Bus,
@@ -16,7 +15,6 @@ import {
   MapPin,
   Maximize2,
   Minus,
-  Monitor,
   Navigation,
   Plus,
   QrCode,
@@ -24,9 +22,6 @@ import {
   Search,
   SlidersHorizontal,
   Store,
-  User,
-  Users,
-  Wallet,
   X,
 } from 'lucide-react';
 import {
@@ -51,6 +46,8 @@ import {
   type MapControlSignal,
   type NearbyBusMarker,
 } from './BarranquillaMaps';
+import {PassengerBottomNav} from './PassengerBottomNav';
+import {QuickAppNav} from './QuickAppNav';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-sky-600',
@@ -164,10 +161,8 @@ export function PassengerMapScreen({
   const [showCorridors, setShowCorridors] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [sheetExpanded, setSheetExpanded] = useState(false);
-  const [fabMenuOpen, setFabMenuOpen] = useState(false);
 
   const [selectedStation, setSelectedStation] = useState<TransitStation | null>(null);
-  const [showRolesModal, setShowRolesModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportText, setReportText] = useState('');
@@ -1161,126 +1156,22 @@ export function PassengerMapScreen({
         </div>
       </section>
 
-      {/* X-style Single Floating Action Button & Expandable Navigation Menu */}
-      {fabMenuOpen && (
-        <div
-          aria-hidden="true"
-          onClick={() => setFabMenuOpen(false)}
-          className="absolute inset-0 z-30 bg-slate-900/25 backdrop-blur-[1px]"
-        />
-      )}
+      <QuickAppNav
+        currentScreen="mapa"
+        balance={balance}
+        onNavigate={onNavigate}
+        onCurrentMapAction={() => {
+          setSheetExpanded(false);
+          triggerSignal('centerUser', userPosition, 15);
+        }}
+        positionClass="bottom-24 left-4"
+      />
 
-      <nav
-        aria-label="Menú rápido de la aplicación"
-        className="absolute bottom-4 left-4 z-40 flex flex-col items-start gap-2.5"
-      >
-        {fabMenuOpen && (
-          <ul className="flex flex-col items-start gap-2 mb-0.5 pl-1.5">
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
-                  setShowRolesModal(true);
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
-                  <Users className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Roles
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
-                  onNavigate('billetera');
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
-                  <Wallet className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Billetera ({formatCOP(balance)})
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
-                  onNavigate('rutas');
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
-                  <Route className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Rutas
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
-                  setSheetExpanded(false);
-                  triggerSignal('centerUser', userPosition, 15);
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span className="w-11 h-11 rounded-full bg-white text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
-                  <Compass className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Explorar mapa (Actual)
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
-                  onNavigate('billetera');
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span className="w-11 h-11 rounded-full bg-[#0D9488] text-white shadow-lg border-2 border-white flex items-center justify-center">
-                  <QrCode className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
-                  Ticket QR
-                </span>
-              </button>
-            </li>
-          </ul>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setFabMenuOpen((open) => !open)}
-          aria-expanded={fabMenuOpen}
-          aria-label={fabMenuOpen ? 'Cerrar menú rápido' : 'Abrir menú de acciones'}
-          className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-[0_8px_24px_rgba(13,148,136,0.45)] border-2 border-white active:scale-95 transition-all cursor-pointer ${
-            fabMenuOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
-          }`}
-        >
-          <Plus
-            className={`w-7 h-7 transition-transform duration-200 ${
-              fabMenuOpen ? 'rotate-45' : ''
-            }`}
-          />
-        </button>
-      </nav>
+      <PassengerBottomNav
+        currentScreen="mapa"
+        balance={balance}
+        onNavigate={onNavigate}
+      />
 
       {/* Station Details / Schedule Modal */}
       {selectedStation && (
@@ -1347,91 +1238,7 @@ export function PassengerMapScreen({
         </div>
       )}
 
-      {/* Role Switcher Modal */}
-      {showRolesModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-[#0D9488]" />
-                <h3 className="font-headline text-base font-bold text-slate-900">
-                  Ecosistema APP BUSES
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowRolesModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500">
-              Selecciona el rol de la plataforma para validar el recorrido completo:
-            </p>
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => setShowRolesModal(false)}
-                className="w-full text-left p-3 rounded-lg border-2 border-[#0D9488] bg-teal-50/50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-[#0D9488]" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">App Pasajero (Actual)</p>
-                    <p className="text-[11px] text-slate-500">
-                      Explorar Mapa, Rutas y Billetera Digital
-                    </p>
-                  </div>
-                </div>
-                <CheckCircle2 className="w-5 h-5 text-[#0D9488]" />
-              </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRolesModal(false);
-                  onNavigate('conductor');
-                }}
-                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Bus className="w-5 h-5 text-[#2563EB]" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">App Conductor (Tableta)</p>
-                    <p className="text-[11px] text-slate-500">
-                      Navegación, Validador QR y Conteo APC
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRolesModal(false);
-                  onNavigate('operador');
-                }}
-                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Monitor className="w-5 h-5 text-amber-500" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">
-                      Centro de Control (Operador Web)
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Telemetría de Flota, Recaudo e Incidencias
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Notifications Modal */}
       {showNotifModal && (

@@ -26,8 +26,10 @@ import {
 import {INITIAL_FLEET_BUSES, formatCOP} from '../data/barranquillaTransit';
 import type {FleetBus, OperationalIncident, ScreenId} from '../types/transit';
 import {BarranquillaFleetMap} from './BarranquillaMaps';
+import {QuickAppNav} from './QuickAppNav';
 
 interface OperatorDashboardScreenProps {
+  balance: number;
   extraPax: number;
   incidents: OperationalIncident[];
   onBroadcast: (message: string) => void;
@@ -44,6 +46,7 @@ type OperatorNavTab =
   | 'incidents';
 
 export function OperatorDashboardScreen({
+  balance,
   extraPax,
   incidents,
   onBroadcast,
@@ -140,11 +143,11 @@ export function OperatorDashboardScreen({
   ];
 
   return (
-    <div className="w-full h-full bg-slate-900 text-slate-100 flex overflow-hidden">
+    <div className="relative w-full h-full bg-slate-900 text-slate-100 flex overflow-hidden">
       {/* Desktop Enterprise Sidebar Navigation */}
       <aside
         aria-label="Navegación del Centro de Control"
-        className="hidden md:flex w-64 bg-slate-950 border-r border-slate-800 flex-col justify-between shrink-0 overflow-y-auto"
+        className="hidden md:flex w-64 bg-slate-950 border-r border-slate-800 flex-col justify-between shrink-0 overflow-y-auto pb-20"
       >
         <div>
           <div className="p-5 border-b border-slate-800 flex items-center gap-3">
@@ -246,7 +249,7 @@ export function OperatorDashboardScreen({
       </aside>
 
       {/* Main Work Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto pb-20">
         {/* Top Action Bar */}
         <header className="min-h-16 px-4 md:px-8 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20">
           <div className="flex items-center gap-3 flex-wrap">
@@ -783,6 +786,12 @@ export function OperatorDashboardScreen({
           <span>{actionFeedback}</span>
         </div>
       )}
+
+      <QuickAppNav
+        currentScreen="operador"
+        balance={balance}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }
