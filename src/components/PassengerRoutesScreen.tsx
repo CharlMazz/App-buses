@@ -174,13 +174,13 @@ export function PassengerRoutesScreen({
     setDestQuery,
   } = tripPlanner;
 
-  // Catalog filter state (from Rutas & RutaQuilla)
+  // Catalog filter state (left-side drawer opened via Rutas button)
   const [routesSearchOpen, setRoutesSearchOpen] = useState(false);
+  const [sideMenuTab, setSideMenuTab] = useState<'companies' | 'routes'>('companies');
   const [searchText, setSearchText] = useState('');
   const [topSearchFocused, setTopSearchFocused] = useState(false);
   const [isResolvingTopPlace, setIsResolvingTopPlace] = useState(false);
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
-  const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
   const [filterByMapBounds, setFilterByMapBounds] = useState(false);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<CompanyRouteItem | null>(null);
@@ -282,11 +282,7 @@ export function PassengerRoutesScreen({
       setTopSearchFocused(false);
       return;
     }
-    const timer = window.setTimeout(() => {
-      topSearchInputRef.current?.focus();
-      setTopSearchFocused(true);
-    }, 50);
-    return () => window.clearTimeout(timer);
+    setPanelOpen(false);
   }, [routesSearchOpen]);
 
   const applyDestinationFromPlaces = useCallback(
@@ -645,24 +641,155 @@ export function PassengerRoutesScreen({
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
       {/* Unified Live Barranquilla Map (Full-bleed with compact floating filter bar) */}
       <main className="relative flex-1 min-h-[220px] w-full bg-[#E8ECEF] overflow-hidden">
-        {/* Slim Single-Row Floating Search + Company Filter at Bottom (Visible only when Rutas button is pressed) */}
-        {routesSearchOpen && (
-          <div
-            className={`absolute left-2.5 right-2.5 z-30 pointer-events-none flex flex-col ${
-              panelOpen ? 'bottom-2.5' : 'bottom-20'
-            }`}
-          >
-            {/* Google Places + Route Catalog Dropdown opening upward above bottom search bar */}
+        {/* Left Slide-Out Route Filter Side Menu (triggered by Rutas nav button) */}
+        <div
+          aria-hidden={!routesSearchOpen}
+          onClick={() => setRoutesSearchOpen(false)}
+          className={`absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-[1px] transition-opacity duration-200 ${
+            routesSearchOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+
+        <aside
+          role="dialog"
+          aria-label="Menú lateral de filtro de rutas"
+          aria-hidden={!routesSearchOpen}
+          className={`absolute top-0 bottom-0 left-0 z-40 w-[85%] max-w-[325px] bg-white shadow-2xl border-r border-slate-200 flex flex-col transition-transform duration-250 ease-out ${
+            routesSearchOpen
+              ? 'translate-x-0 pointer-events-auto'
+              : '-translate-x-full pointer-events-none'
+          }`}
+        >
+          {/* Side Menu Header */}
+          <div className="px-3.5 py-3 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 bg-slate-50/70">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-[10px] bg-teal-50 border border-teal-200 text-[#0D9488] flex items-center justify-center shrink-0">
+                <Filter className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-slate-900 leading-tight truncate">
+                  Filtrar rutas
+                </h2>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {selectedCompanies.length > 0
+                    ? `${selectedCompanies.length} empresa${selectedCompanies.length === 1 ? '' : 's'} · ${filteredRoutes.length} rutas`
+                    : hasRouteFilter
+                    ? `${filteredRoutes.length} rutas encontradas`
+                    : 'Selecciona empresas o busca línea'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              {(hasRouteFilter || filterByMapBounds) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCompanies([]);
+                    setSearchText('');
+                    setFilterByMapBounds(false);
+                    setSelectedRoute(null);
+                  }}
+                  className="px-2 py-1 rounded-md text-[11px] font-semibold text-[#0D9488] hover:bg-teal-50 transition-colors"
+                >
+                  Limpiar
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setRoutesSearchOpen(false)}
+                aria-label="Cerrar menú lateral de rutas"
+                className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Search Input + Inline Autocomplete */}
+          <div className="px-3 pt-2.5 pb-2 border-b border-slate-100 shrink-0 space-y-2 relative">
+            <div className="relative flex items-center">
+              <Search
+                aria-hidden="true"
+                className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
+              />
+              <input
+                ref={topSearchInputRef}
+                type="text"
+                aria-label="Buscar ruta, barrio, lugar o dirección"
+                value={searchText}
+                onFocus={() => setTopSearchFocused(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setTopSearchFocused(false), 150);
+                }}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setTopSearchFocused(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleTopSearchSubmit();
+                  } else if (e.key === 'Escape') {
+                    setTopSearchFocused(false);
+                    setRoutesSearchOpen(false);
+                  }
+                }}
+                placeholder="Buscar barrio, ruta o dirección..."
+                className="w-full h-9 pl-8 pr-7 py-0 leading-normal rounded-[10px] bg-slate-100 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white border border-slate-200/70"
+              />
+              {searchText && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSearchText('');
+                    resetTopPlacesSession();
+                  }}
+                  aria-label="Limpiar búsqueda"
+                  className="p-1 absolute right-1.5 text-slate-400 hover:text-slate-700"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Side Menu Section Tabs: Empresas vs Rutas filtradas */}
+            <div className="grid grid-cols-2 gap-1 bg-slate-100 p-0.5 rounded-[10px]">
+              <button
+                type="button"
+                onClick={() => setSideMenuTab('companies')}
+                className={`py-1.5 px-2 rounded-[8px] text-[11.5px] font-semibold transition-colors ${
+                  sideMenuTab === 'companies'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Empresas ({BUS_COMPANIES.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSideMenuTab('routes')}
+                className={`py-1.5 px-2 rounded-[8px] text-[11.5px] font-semibold transition-colors ${
+                  sideMenuTab === 'routes'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Rutas ({filteredRoutes.length})
+              </button>
+            </div>
+
+            {/* Places + Quick Route Suggestions Dropdown */}
             {topSearchFocused && searchText.trim().length >= 2 && (
               <div
                 role="listbox"
                 aria-label="Resultados de lugares y rutas"
-                className="pointer-events-auto mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-[42vh] overflow-y-auto divide-y divide-slate-100"
+                className="absolute left-3 right-3 top-[48px] z-50 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-[45vh] overflow-y-auto divide-y divide-slate-100"
               >
                 {(isTopPlacesLoading || isResolvingTopPlace) && (
-                  <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-slate-500 bg-slate-50/70">
+                  <div className="px-3 py-2 flex items-center gap-2 text-xs text-slate-500 bg-slate-50/70">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
-                    <span>Buscando lugares en Google Places...</span>
+                    <span>Buscando en Google Places...</span>
                   </div>
                 )}
 
@@ -677,10 +804,10 @@ export function PassengerRoutesScreen({
                       type="button"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => void handleSelectTopPlaceSuggestion(suggestion)}
-                      className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-teal-50/60 transition-colors"
+                      className="w-full px-3 py-2 text-left flex items-start gap-2 hover:bg-teal-50/60 transition-colors"
                     >
-                      <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
-                        <MapPin className="w-3.5 h-3.5" />
+                      <div className="w-6 h-6 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
+                        <MapPin className="w-3 h-3" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
@@ -692,7 +819,7 @@ export function PassengerRoutesScreen({
                   );
                 })}
 
-                {baseMatches.slice(0, 3).map((route) => (
+                {baseMatches.slice(0, 4).map((route) => (
                   <button
                     key={`top-route-${route.id}`}
                     type="button"
@@ -700,16 +827,14 @@ export function PassengerRoutesScreen({
                     onClick={() => {
                       setTopSearchFocused(false);
                       setRoutesSearchOpen(false);
-                      setDrawerTab('filtered');
-                      setPanelOpen(true);
                       handleSelectRoute(route);
                     }}
-                    className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-50 transition-colors"
+                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors"
                   >
                     <span
-                      className={`px-2 py-0.5 ${getCompanyBadgeClass(
+                      className={`px-1.5 py-0.5 ${getCompanyBadgeClass(
                         route.company
-                      )} text-white font-headline text-[11px] font-bold rounded shrink-0`}
+                      )} text-white font-headline text-[10.5px] font-bold rounded shrink-0`}
                     >
                       {route.code}
                     </span>
@@ -717,7 +842,7 @@ export function PassengerRoutesScreen({
                       <p className="text-xs font-semibold text-slate-900 truncate">
                         {route.company} · {route.description}
                       </p>
-                      <p className="text-[11px] text-slate-500 truncate">{route.corridor}</p>
+                      <p className="text-[10.5px] text-slate-500 truncate">{route.corridor}</p>
                     </div>
                   </button>
                 ))}
@@ -727,53 +852,41 @@ export function PassengerRoutesScreen({
                   topPlaceSuggestions.length === 0 &&
                   baseMatches.length === 0 && (
                     <div
-                      className={`px-3.5 py-3 text-xs ${
+                      className={`px-3 py-2.5 text-xs ${
                         topPlacesError ? 'text-amber-700 bg-amber-50' : 'text-slate-500'
                       }`}
                     >
                       {topPlacesError ??
-                        'Sin sugerencias exactas. Presiona Enter para buscar en Barranquilla.'}
+                        'Sin sugerencias exactas. Presiona Enter para buscar.'}
                     </div>
                   )}
               </div>
             )}
+          </div>
 
-            {/* Multi-Select Checkmark Company Popover opening upward */}
-            {companyMenuOpen && (
-              <div
-                role="dialog"
-                aria-label="Seleccionar empresas de buses"
-                className="pointer-events-auto mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 p-2.5 max-h-[42vh] flex flex-col gap-2"
-              >
-                <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
-                  <span className="text-xs font-bold text-slate-900">
-                    Filtrar líneas por empresa (
-                    {selectedCompanies.length > 0
-                      ? `${selectedCompanies.length} sel.`
-                      : 'Ninguna'}
-                    )
+          {/* Scrollable Side Menu Body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2.5 space-y-2">
+            {sideMenuTab === 'companies' ? (
+              <>
+                <div className="flex items-center justify-between gap-2 pb-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Empresas operadoras
                   </span>
-                  <div className="flex items-center gap-2">
-                    {selectedCompanies.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCompanies([])}
-                        className="text-[11px] font-semibold text-[#0D9488] hover:underline"
-                      >
-                        Limpiar
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setCompanyMenuOpen(false)}
-                      aria-label="Cerrar selector de empresas"
-                      className="p-0.5 text-slate-400 hover:text-slate-700"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFilterByMapBounds((v) => !v)}
+                    aria-pressed={filterByMapBounds}
+                    className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold border transition-colors ${
+                      filterByMapBounds
+                        ? 'bg-teal-50 text-[#0D9488] border-[#0D9488]'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {filterByMapBounds ? 'Según el mapa ✓' : 'Toda la ciudad'}
+                  </button>
                 </div>
-                <div className="overflow-y-auto grid grid-cols-2 @[480px]:grid-cols-3 gap-1.5 pr-0.5">
+
+                <div className="space-y-1.5">
                   {BUS_COMPANIES.map((c) => {
                     const checked = selectedCompanies.includes(c.name);
                     return (
@@ -783,10 +896,10 @@ export function PassengerRoutesScreen({
                         role="checkbox"
                         aria-checked={checked}
                         onClick={() => toggleCompany(c.name)}
-                        className={`px-2 py-1.5 rounded-[8px] border text-left flex items-center gap-1.5 text-[11px] transition-colors ${
+                        className={`w-full px-2.5 py-2 rounded-[10px] border text-left flex items-center gap-2.5 text-xs transition-colors ${
                           checked
-                            ? 'bg-teal-50 border-[#0D9488] text-slate-900 font-semibold'
-                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                            ? 'bg-teal-50/90 border-[#0D9488] text-slate-900 font-semibold'
+                            : 'bg-slate-50/70 border-slate-200 text-slate-700 hover:bg-slate-100'
                         }`}
                       >
                         <span
@@ -798,103 +911,125 @@ export function PassengerRoutesScreen({
                         >
                           {checked && <Check className="w-3 h-3" />}
                         </span>
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${getCompanyBadgeClass(
+                            c.name
+                          )}`}
+                        />
                         <span className="truncate flex-1">{c.name}</span>
-                        <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                        <span className="font-mono text-[11px] text-slate-500 shrink-0">
                           {c.count}
                         </span>
                       </button>
                     );
                   })}
                 </div>
+              </>
+            ) : !hasRouteFilter ? (
+              <div className="py-8 px-2 text-center text-xs text-slate-500 space-y-3">
+                <p>
+                  No hay rutas mostradas por defecto. Selecciona una o más empresas o escribe una línea para ver su trazado en el mapa.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSideMenuTab('companies')}
+                  className="px-3.5 py-2 rounded-lg bg-[#0D9488] text-white font-semibold text-xs hover:bg-teal-700 transition-colors"
+                >
+                  Elegir empresas
+                </button>
               </div>
-            )}
-
-            <div className="pointer-events-auto bg-white/95 backdrop-blur-sm rounded-[12px] shadow-lg border border-slate-200 p-1.5 flex items-center gap-1.5">
-              <div className="relative flex-1 min-w-0 flex items-center">
-                <Search
-                  aria-hidden="true"
-                  className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
-                />
-                <input
-                  ref={topSearchInputRef}
-                  type="text"
-                  aria-label="Buscar ruta, barrio, lugar o dirección"
-                  value={searchText}
-                  onFocus={() => {
-                    setTopSearchFocused(true);
-                    setCompanyMenuOpen(false);
-                  }}
-                  onBlur={() => {
-                    window.setTimeout(() => setTopSearchFocused(false), 150);
-                  }}
-                  onChange={(e) => {
-                    setSearchText(e.target.value);
-                    setTopSearchFocused(true);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void handleTopSearchSubmit();
-                    } else if (e.key === 'Escape') {
-                      setTopSearchFocused(false);
-                      setCompanyMenuOpen(false);
-                      setRoutesSearchOpen(false);
-                    }
-                  }}
-                  placeholder="Buscar barrio, ruta o dirección..."
-                  className="w-full h-8 pl-8 pr-6 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
-                />
-                {searchText && (
+            ) : filteredRoutes.length === 0 ? (
+              <div className="py-8 px-2 text-center text-xs text-slate-500 space-y-2.5">
+                <p>No hay rutas en esta vista con los filtros actuales.</p>
+                {filterByMapBounds && (
                   <button
                     type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setSearchText('');
-                      resetTopPlacesSession();
-                    }}
-                    aria-label="Limpiar búsqueda"
-                    className="p-1 absolute right-1 text-slate-400 hover:text-slate-700"
+                    onClick={() => setFilterByMapBounds(false)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
                   >
-                    <X className="w-3 h-3" />
+                    Ver en toda la ciudad
                   </button>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setTopSearchFocused(false);
-                  setCompanyMenuOpen((v) => !v);
-                }}
-                aria-expanded={companyMenuOpen}
-                className={`h-8 px-2.5 shrink-0 rounded-[8px] border text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors ${
-                  selectedCompanies.length > 0 || companyMenuOpen
-                    ? 'bg-teal-50 border-[#0D9488] text-[#0D9488]'
-                    : 'bg-slate-100/90 border-slate-200 text-slate-800 hover:bg-slate-200/70'
-                }`}
-              >
-                <Filter className="w-3.5 h-3.5" />
-                <span>
-                  {selectedCompanies.length > 0
-                    ? `Líneas (${selectedCompanies.length})`
-                    : 'Filtrar líneas'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCompanyMenuOpen(false);
-                  setRoutesSearchOpen(false);
-                }}
-                aria-label="Cerrar barra de búsqueda"
-                className="w-8 h-8 shrink-0 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            ) : (
+              <div className="space-y-1.5">
+                {filteredRoutes.map((route) => {
+                  const isSelected = selectedRoute?.id === route.id;
+                  return (
+                    <button
+                      key={`side-route-${route.id}`}
+                      type="button"
+                      onClick={() => {
+                        setRoutesSearchOpen(false);
+                        handleSelectRoute(route);
+                      }}
+                      className={`w-full p-2.5 rounded-[10px] border text-left transition-colors ${
+                        isSelected
+                          ? 'bg-teal-50 border-[#0D9488] ring-1 ring-[#0D9488]'
+                          : 'bg-slate-50/70 border-slate-200 hover:border-[#0D9488]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <span
+                            className={`px-1.5 py-0.5 ${getCompanyBadgeClass(
+                              route.company
+                            )} text-white font-headline text-[11px] font-bold rounded shrink-0 mt-0.5`}
+                          >
+                            {route.code}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {route.name}
+                            </p>
+                            <p className="text-[11px] text-slate-600 truncate">
+                              {route.company} · {route.corridor}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="font-mono text-[11px] font-bold text-slate-900 shrink-0">
+                          {formatCOP(route.fareCop)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Side Menu Sticky Footer */}
+          <div className="p-3 border-t border-slate-200 bg-white shrink-0 flex items-center gap-2">
+            {hasRouteFilter ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRoutesSearchOpen(false)}
+                  className="flex-1 h-9 px-3 rounded-[10px] bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>
+                    Ver {filteredRoutes.length}{' '}
+                    {filteredRoutes.length === 1 ? 'ruta' : 'rutas'} en mapa
+                  </span>
+                </button>
+                {sideMenuTab === 'companies' && filteredRoutes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSideMenuTab('routes')}
+                    className="h-9 px-2.5 rounded-[10px] bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold shrink-0 transition-colors"
+                  >
+                    Lista
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] text-slate-500 text-center w-full">
+                Marca una o más empresas para trazar sus rutas en el mapa
+              </p>
+            )}
+          </div>
+        </aside>
         <BarranquillaPassengerMap
           routeFilter={routeFilter}
           showTrafficLayer={false}
@@ -1443,8 +1578,8 @@ export function PassengerRoutesScreen({
                     type="button"
                     onClick={() => {
                       setPanelOpen(false);
+                      setSideMenuTab('companies');
                       setRoutesSearchOpen(true);
-                      setCompanyMenuOpen(true);
                     }}
                     className="px-3.5 py-2 rounded-lg bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold inline-flex items-center gap-1.5"
                   >

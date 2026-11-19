@@ -680,9 +680,18 @@ export function PassengerBottomNav({
               aria-expanded={
                 currentScreen === 'rutas' && onToggleRoutesSearch ? routesSearchOpen : undefined
               }
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
+              aria-label={
                 currentScreen === 'rutas'
-                  ? 'text-[#0D9488] font-medium'
+                  ? routesSearchOpen
+                    ? 'Cerrar menú lateral de filtro de rutas'
+                    : 'Abrir menú lateral de filtro de rutas'
+                  : 'Ir a Rutas'
+              }
+              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-3 rounded-xl transition-colors ${
+                currentScreen === 'rutas'
+                  ? routesSearchOpen
+                    ? 'bg-teal-50 text-[#0D9488] font-semibold'
+                    : 'text-[#0D9488] font-medium'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
