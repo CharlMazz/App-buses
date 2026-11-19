@@ -580,7 +580,7 @@ export function PassengerRoutesScreen({
         {routesSearchOpen && (
           <div
             className={`absolute left-2.5 right-2.5 z-30 pointer-events-none flex flex-col ${
-              panelOpen ? 'bottom-2.5' : 'bottom-6'
+              panelOpen ? 'bottom-2.5' : 'bottom-20'
             }`}
           >
             {/* Google Places + Route Catalog Dropdown opening upward above bottom search bar */}
@@ -1056,7 +1056,7 @@ export function PassengerRoutesScreen({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onNavigate('billetera');
+                                onNavigate('qr');
                               }}
                               className="min-h-7 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
                             >
@@ -1141,7 +1141,7 @@ export function PassengerRoutesScreen({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onNavigate('billetera');
+                                onNavigate('qr');
                               }}
                               className="min-h-7 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
                             >
@@ -1248,7 +1248,7 @@ export function PassengerRoutesScreen({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onNavigate('billetera');
+                          onNavigate('qr');
                         }}
                         className="min-h-8 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-medium active:scale-95 transition-all"
                       >
@@ -1328,7 +1328,7 @@ export function PassengerRoutesScreen({
                 type="button"
                 onClick={() => {
                   setSelectedStation(null);
-                  onNavigate('billetera');
+                  onNavigate('qr');
                 }}
                 className="w-full min-h-[48px] rounded-[10px] bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
               >

@@ -36,7 +36,8 @@ export function QuickAppNav({
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const [showRolesModal, setShowRolesModal] = useState(false);
 
-  const isPassengerRole = currentScreen === 'rutas' || currentScreen === 'billetera';
+  const isPassengerRole =
+    currentScreen === 'rutas' || currentScreen === 'billetera' || currentScreen === 'qr';
 
   return (
     <>
@@ -131,10 +132,10 @@ export function QuickAppNav({
                 type="button"
                 onClick={() => {
                   setFabMenuOpen(false);
-                  if (currentScreen === 'billetera') {
+                  if (currentScreen === 'qr') {
                     onCurrentWalletAction?.();
                   } else {
-                    onNavigate('billetera');
+                    onNavigate('qr');
                   }
                 }}
                 className="flex items-center gap-2.5 group"
@@ -143,7 +144,7 @@ export function QuickAppNav({
                   <QrCode className="w-5 h-5" />
                 </span>
                 <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
-                  Ticket QR
+                  Ticket QR{currentScreen === 'qr' ? ' (Actual)' : ''}
                 </span>
               </button>
             </li>

@@ -10,6 +10,7 @@ import {
   MapPin,
   Monitor,
   Plus,
+  QrCode,
   Route,
   Search,
   Store,
@@ -39,7 +40,7 @@ function normalizeText(value: string): string {
 }
 
 interface PassengerBottomNavProps {
-  currentScreen: 'rutas' | 'billetera';
+  currentScreen: 'rutas' | 'billetera' | 'qr';
   balance: number;
   tripPlanner: TripPlannerState;
   onNavigate: (screen: ScreenId) => void;
@@ -370,11 +371,11 @@ export function PassengerBottomNav({
         aria-label="Navegación principal"
         className={`${positionClass} z-40 bg-white border-t border-slate-200 px-3 pt-1.5 pb-2.5 shadow-[0_-4px_20px_rgba(15,23,42,0.08)]`}
       >
-        {/* Pickup & Destination Search Overlay anchored above the Bottom Bar */}
+        {/* Pickup & Destination Search Overlay anchored above the + button and Bottom Bar */}
         {searchOpen && (
           <div
             ref={searchCardRef}
-            className="absolute left-2.5 right-2.5 bottom-full mb-4 z-50 max-w-lg mx-auto"
+            className="absolute left-2.5 right-2.5 bottom-full mb-20 z-50 max-w-lg mx-auto"
           >
             {/* Places Autocomplete Dropdown opening upward above the search card */}
             {showDropdown && (
@@ -631,6 +632,38 @@ export function PassengerBottomNav({
           </div>
         )}
 
+        <button
+          type="button"
+          onClick={() => {
+            onCloseRoutesSearch?.();
+            setSearchOpen((open) => {
+              const next = !open;
+              if (next) {
+                setActiveField('destination');
+                window.setTimeout(() => destInputRef.current?.focus(), 60);
+              } else {
+                setActiveField(null);
+              }
+              return next;
+            });
+          }}
+          aria-expanded={searchOpen}
+          aria-label={
+            searchOpen
+              ? 'Cerrar búsqueda de recogida y destino'
+              : 'Ingresar lugar de recogida y destino'
+          }
+          className={`absolute bottom-full right-3 mb-3 z-40 w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg border-[3px] border-white active:scale-95 transition-all cursor-pointer ${
+            searchOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
+          }`}
+        >
+          <Plus
+            className={`w-6 h-6 transition-transform duration-200 ${
+              searchOpen ? 'rotate-45' : ''
+            }`}
+          />
+        </button>
+
         <ul className="flex items-center justify-between max-w-lg mx-auto gap-1">
           <li className="flex-1 flex justify-center">
             <button
@@ -662,10 +695,28 @@ export function PassengerBottomNav({
               type="button"
               onClick={() => {
                 closeSearch();
+                if (currentScreen !== 'qr') onNavigate('qr');
+              }}
+              aria-current={currentScreen === 'qr' ? 'page' : undefined}
+              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
+                currentScreen === 'qr'
+                  ? 'text-[#0D9488] font-medium'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <QrCode className="w-5 h-5" />
+              <span className="text-[11px]">Ticket QR</span>
+            </button>
+          </li>
+          <li className="flex-1 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                closeSearch();
                 if (currentScreen !== 'billetera') onNavigate('billetera');
               }}
               aria-current={currentScreen === 'billetera' ? 'page' : undefined}
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 ${
+              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
                 currentScreen === 'billetera'
                   ? 'text-[#0D9488] font-medium'
                   : 'text-slate-500 hover:text-slate-900'
@@ -686,39 +737,6 @@ export function PassengerBottomNav({
             >
               <User className="w-5 h-5" />
               <span className="text-[11px]">Perfil</span>
-            </button>
-          </li>
-          <li className="relative shrink-0 pl-1 flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                onCloseRoutesSearch?.();
-                setSearchOpen((open) => {
-                  const next = !open;
-                  if (next) {
-                    setActiveField('destination');
-                    window.setTimeout(() => destInputRef.current?.focus(), 60);
-                  } else {
-                    setActiveField(null);
-                  }
-                  return next;
-                });
-              }}
-              aria-expanded={searchOpen}
-              aria-label={
-                searchOpen
-                  ? 'Cerrar búsqueda de recogida y destino'
-                  : 'Ingresar lugar de recogida y destino'
-              }
-              className={`-mt-6 w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg border-[3px] border-white active:scale-95 transition-all cursor-pointer ${
-                searchOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
-              }`}
-            >
-              <Plus
-                className={`w-6 h-6 transition-transform duration-200 ${
-                  searchOpen ? 'rotate-45' : ''
-                }`}
-              />
             </button>
           </li>
         </ul>
@@ -773,6 +791,26 @@ export function PassengerBottomNav({
                     <p className="font-semibold text-slate-900 text-sm">Mapa y Rutas BAQ</p>
                     <p className="text-[11px] text-slate-500">
                       Buses en vivo, recogida, destino y rutas
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-400" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfileModal(false);
+                  if (currentScreen !== 'qr') onNavigate('qr');
+                }}
+                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <QrCode className="w-5 h-5 text-[#0D9488]" />
+                  <div>
+                    <p className="font-semibold text-slate-900 text-sm">Ticket QR de Abordaje</p>
+                    <p className="text-[11px] text-slate-500">
+                      Código QR dinámico, NFC y pasajes grupales
                     </p>
                   </div>
                 </div>

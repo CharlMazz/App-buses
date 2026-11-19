@@ -3,6 +3,7 @@ import {APIProvider} from '@vis.gl/react-google-maps';
 import {DriverCockpitScreen} from './components/DriverCockpitScreen';
 import {OfflineIndicator} from './components/OfflineIndicator';
 import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
+import {PassengerQrScreen} from './components/PassengerQrScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
 import {
@@ -25,7 +26,13 @@ const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
 function getInitialScreen(): ScreenId {
   const raw = window.location.hash.replace('#', '');
-  if (raw === 'rutas' || raw === 'billetera' || raw === 'conductor' || raw === 'operador') {
+  if (
+    raw === 'rutas' ||
+    raw === 'billetera' ||
+    raw === 'qr' ||
+    raw === 'conductor' ||
+    raw === 'operador'
+  ) {
     return raw;
   }
   return 'rutas';
@@ -206,6 +213,13 @@ export default function App() {
                 transactions={transactions}
                 tripPlanner={tripPlanner}
                 onTopUp={handleTopUp}
+                onNavigate={navigateTo}
+              />
+            )}
+            {screen === 'qr' && (
+              <PassengerQrScreen
+                balance={balance}
+                tripPlanner={tripPlanner}
                 onNavigate={navigateTo}
               />
             )}

@@ -1,4 +1,4 @@
-export type ScreenId = 'rutas' | 'billetera' | 'conductor' | 'operador';
+export type ScreenId = 'rutas' | 'billetera' | 'qr' | 'conductor' | 'operador';
 
 export type DeviceMode = 'movil' | 'tablet' | 'desktop';
 

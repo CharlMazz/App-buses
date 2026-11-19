@@ -6,10 +6,9 @@ import {
   CheckCircle2,
   CreditCard,
   Lock,
-  Nfc,
   PlusCircle,
+  QrCode,
   Receipt,
-  RefreshCw,
   X,
 } from 'lucide-react';
 import {formatCOP} from '../data/barranquillaTransit';
@@ -32,37 +31,6 @@ const PAYMENT_METHODS = [
   {id: 'card', name: 'Tarjeta Débito Visa', detail: '•••• 4821', badge: 'V', color: 'bg-blue-700'},
 ];
 
-const QR_DATA_CELLS: Array<{x: number; y: number; w: number; h: number; accent?: boolean}> = [
-  {x: 42, y: 8, w: 6, h: 6},
-  {x: 52, y: 8, w: 8, h: 6},
-  {x: 66, y: 8, w: 6, h: 12},
-  {x: 42, y: 20, w: 12, h: 6},
-  {x: 60, y: 20, w: 6, h: 6, accent: true},
-  {x: 72, y: 20, w: 6, h: 6},
-  {x: 8, y: 44, w: 6, h: 8},
-  {x: 20, y: 44, w: 8, h: 6},
-  {x: 34, y: 44, w: 12, h: 12},
-  {x: 52, y: 40, w: 16, h: 6, accent: true},
-  {x: 74, y: 40, w: 6, h: 10},
-  {x: 86, y: 44, w: 14, h: 6},
-  {x: 106, y: 44, w: 6, h: 12},
-  {x: 8, y: 60, w: 12, h: 6},
-  {x: 26, y: 60, w: 6, h: 12, accent: true},
-  {x: 38, y: 64, w: 16, h: 6},
-  {x: 60, y: 56, w: 10, h: 14},
-  {x: 76, y: 60, w: 6, h: 6, accent: true},
-  {x: 88, y: 58, w: 14, h: 8},
-  {x: 44, y: 82, w: 8, h: 6},
-  {x: 58, y: 82, w: 12, h: 8, accent: true},
-  {x: 76, y: 80, w: 10, h: 12},
-  {x: 92, y: 78, w: 6, h: 12},
-  {x: 104, y: 80, w: 8, h: 6},
-  {x: 44, y: 96, w: 14, h: 6},
-  {x: 64, y: 98, w: 6, h: 12},
-  {x: 76, y: 100, w: 14, h: 6, accent: true},
-  {x: 96, y: 98, w: 14, h: 12},
-];
-
 export function PassengerWalletScreen({
   balance,
   transactions,
@@ -73,10 +41,6 @@ export function PassengerWalletScreen({
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const txSectionRef = useRef<HTMLElement | null>(null);
 
-  const [ticketCode, setTicketCode] = useState('TK-BAQ-883492');
-  const [qrSeed, setQrSeed] = useState(1);
-  const [secondsLeft, setSecondsLeft] = useState(102);
-  const [nfcEnabled, setNfcEnabled] = useState(true);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showMethodModal, setShowMethodModal] = useState(false);
   const [selectedMethodIdx, setSelectedMethodIdx] = useState(0);
@@ -86,21 +50,10 @@ export function PassengerWalletScreen({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setSecondsLeft((s) => (s > 1 ? s - 1 : 120));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  useEffect(() => {
     if (!toastMsg) return;
     const t = window.setTimeout(() => setToastMsg(null), 2500);
     return () => window.clearTimeout(t);
   }, [toastMsg]);
-
-  const formattedTimer = `${String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:${String(
-    secondsLeft % 60
-  ).padStart(2, '0')} min`;
 
   const tripsCount = Math.floor(balance / 3100);
   const activeMethod = PAYMENT_METHODS[selectedMethodIdx];
@@ -112,15 +65,6 @@ export function PassengerWalletScreen({
         : transactions.filter((tx) => tx.type === txFilter);
     return showAllTx ? base : base.slice(0, 5);
   }, [transactions, txFilter, showAllTx]);
-
-  const handleRefreshQr = () => {
-    const rnd = Math.floor(100000 + Math.random() * 900000);
-    setTicketCode(`TK-BAQ-${rnd}`);
-    setQrSeed((s) => s + 1);
-    setSecondsLeft(120);
-    mainScrollRef.current?.scrollTo({top: 0, behavior: 'smooth'});
-    setToastMsg('Nuevo código QR dinámico generado');
-  };
 
   const handlePresetTopUp = (amt: number) => {
     onTopUp(amt, `Recarga Rápida ${activeMethod.name.split(' ')[0]}`);
@@ -150,25 +94,35 @@ export function PassengerWalletScreen({
           </button>
           <div className="min-w-0">
             <h1 className="font-headline text-base @[420px]:text-lg font-bold text-slate-900 truncate">
-              Billetera & Ticket Digital
+              Billetera & Pagos
             </h1>
             <p className="text-[11px] text-slate-500 truncate">
-              Red Metropolitana Barranquilla · Tarifa $3.100 COP
+              Saldo, recargas y métodos de pago · Tarifa $3.100 COP
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setShowAllTx(true);
-            txSectionRef.current?.scrollIntoView({behavior: 'smooth'});
-            setToastMsg(`Mostrando ${transactions.length} movimientos recientes`);
-          }}
-          aria-label="Historial de comprobantes"
-          className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
-        >
-          <Receipt className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onNavigate('qr')}
+            className="h-9 px-3 rounded-full bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>Ver QR</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAllTx(true);
+              txSectionRef.current?.scrollIntoView({behavior: 'smooth'});
+              setToastMsg(`Mostrando ${transactions.length} movimientos recientes`);
+            }}
+            aria-label="Historial de comprobantes"
+            className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all"
+          >
+            <Receipt className="w-4 h-4" />
+          </button>
+        </div>
       </header>
 
       {/* Scrollable Main Content */}
@@ -177,129 +131,8 @@ export function PassengerWalletScreen({
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 pb-24"
       >
         <div className="space-y-4 @[640px]:space-y-0 @[640px]:grid @[640px]:grid-cols-12 @[640px]:gap-5 items-start">
-          {/* Dynamic QR Ticket Card */}
-          <section
-            aria-label="Ticket Digital Dinámico"
-            className="@[640px]:col-span-5 relative bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-[22px] p-4 @[420px]:p-5 shadow-xl overflow-hidden border border-slate-700"
-          >
-            <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-[#0D9488]/20 rounded-full blur-2xl pointer-events-none" />
-
-            {/* Ticket Header Status */}
-            <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/10">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="px-2 py-0.5 rounded bg-[#0D9488] text-white font-mono text-[11px] font-bold shrink-0">
-                  QR DINÁMICO
-                </span>
-                <span className="text-xs text-white/80 truncate">1 pasaje</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[11px] shrink-0">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Listo</span>
-              </div>
-            </div>
-
-            {/* Dynamic SVG QR Code */}
-            <div className="my-4 flex flex-col items-center">
-              <button
-                type="button"
-                onClick={handleRefreshQr}
-                aria-label="Tocar para regenerar código QR"
-                className="p-3 bg-white rounded-xl shadow-inner flex flex-col items-center hover:ring-2 hover:ring-[#14B8A6] transition-all cursor-pointer"
-              >
-                <svg
-                  className="w-40 h-40 @[420px]:w-44 @[420px]:h-44"
-                  viewBox="0 0 120 120"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  {/* Finder Squares */}
-                  <rect x="5" y="5" width="30" height="30" rx="4" fill="#0F172A" />
-                  <rect x="10" y="10" width="20" height="20" rx="2" fill="#FFFFFF" />
-                  <rect x="15" y="15" width="10" height="10" rx="1" fill="#0D9488" />
-
-                  <rect x="85" y="5" width="30" height="30" rx="4" fill="#0F172A" />
-                  <rect x="90" y="10" width="20" height="20" rx="2" fill="#FFFFFF" />
-                  <rect x="95" y="15" width="10" height="10" rx="1" fill="#0D9488" />
-
-                  <rect x="5" y="85" width="30" height="30" rx="4" fill="#0F172A" />
-                  <rect x="10" y="90" width="20" height="20" rx="2" fill="#FFFFFF" />
-                  <rect x="15" y="95" width="10" height="10" rx="1" fill="#0D9488" />
-
-                  {/* Seed-responsive Data Modules */}
-                  {QR_DATA_CELLS.map((cell, idx) => {
-                    const useTeal = cell.accent
-                      ? (idx + qrSeed) % 2 === 1
-                      : (idx + qrSeed) % 5 === 0;
-                    const visible = (idx + qrSeed) % 9 !== 0 || cell.accent;
-                    if (!visible) return null;
-                    return (
-                      <rect
-                        key={`${cell.x}-${cell.y}-${idx}`}
-                        x={cell.x}
-                        y={cell.y}
-                        width={cell.w}
-                        height={cell.h}
-                        rx={1}
-                        fill={useTeal ? '#0D9488' : '#0F172A'}
-                      />
-                    );
-                  })}
-                </svg>
-                <span className="font-mono text-[11px] text-slate-600 tracking-widest mt-1.5 font-semibold">
-                  {ticketCode}
-                </span>
-              </button>
-
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-white/90">
-                <button
-                  type="button"
-                  onClick={handleRefreshQr}
-                  className="min-h-[32px] px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-1.5 text-teal-300 font-medium transition-colors"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Actualizar QR</span>
-                </button>
-                <span className="text-white/80">
-                  Expira:{' '}
-                  <strong className="font-mono text-emerald-400 tabular-nums">
-                    {formattedTimer}
-                  </strong>
-                </span>
-              </div>
-            </div>
-
-            {/* NFC Toggle Row */}
-            <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs text-white/80 min-w-0">
-                <Nfc className="w-4 h-4 text-[#14B8A6] shrink-0" />
-                <span className="truncate">Pago por Contacto NFC</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setNfcEnabled((v) => {
-                    const next = !v;
-                    setToastMsg(
-                      next
-                        ? 'Antena NFC lista: acerca tu dispositivo al validador'
-                        : 'Pago NFC pausado temporalmente'
-                    );
-                    return next;
-                  });
-                }}
-                className={`px-2.5 py-1 rounded font-mono text-[11px] font-semibold active:scale-95 transition-all shrink-0 ${
-                  nfcEnabled
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/30'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                {nfcEnabled ? 'HABILITADO' : 'PAUSADO'}
-              </button>
-            </div>
-          </section>
-
-          {/* Right Column on Tablet/Desktop / Stacked on Mobile */}
-          <div className="@[640px]:col-span-7 space-y-4">
+          {/* Left Column: Balance, Quick Top-Ups & Payment Methods */}
+          <div className="@[640px]:col-span-6 space-y-4">
             {/* Digital Wallet Balance Card */}
             <section
               aria-label="Saldo y Billetera Digital"
@@ -384,13 +217,14 @@ export function PassengerWalletScreen({
                 </button>
               </div>
             </section>
+          </div>
 
-            {/* Recent Transactions List */}
+          {/* Recent Transactions List */}
             <section
               ref={txSectionRef}
               id="txListSection"
               aria-label="Historial de Movimientos"
-              className="bg-white rounded-[20px] p-4 shadow-sm border border-slate-200 space-y-3"
+              className="@[640px]:col-span-6 bg-white rounded-[20px] p-4 shadow-sm border border-slate-200 space-y-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-headline text-base text-slate-900 font-bold">
@@ -486,7 +320,6 @@ export function PassengerWalletScreen({
                 )}
               </div>
             </section>
-          </div>
         </div>
       </main>
 

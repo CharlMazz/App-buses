@@ -13,6 +13,7 @@ import type {
 export const NATIVE_DEVICE_BY_SCREEN: Record<ScreenId, 'movil' | 'tablet' | 'desktop'> = {
   rutas: 'movil',
   billetera: 'movil',
+  qr: 'movil',
   conductor: 'tablet',
   operador: 'desktop',
 };
