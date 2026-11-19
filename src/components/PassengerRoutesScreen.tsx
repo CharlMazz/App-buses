@@ -416,18 +416,17 @@ export function PassengerRoutesScreen({
     });
   }, [searchText, selectedCompanies]);
 
-  const hasActiveFilter =
-    searchText.trim().length > 0 ||
-    selectedCompanies.length > 0 ||
-    selectedRoute !== null;
+  const hasRouteFilter =
+    searchText.trim().length > 0 || selectedCompanies.length > 0;
 
   const filteredRoutes = useMemo(() => {
+    if (!hasRouteFilter) return [];
     if (!filterByMapBounds || !mapBounds) return baseMatches;
     return baseMatches.filter((r) => {
       const pts = r.segments ? r.segments.flat() : [...r.path, ...r.returnPath];
       return routeIntersectsBounds(r.center, pts, mapBounds);
     });
-  }, [baseMatches, filterByMapBounds, mapBounds]);
+  }, [hasRouteFilter, baseMatches, filterByMapBounds, mapBounds]);
 
   // Live nearby TransMetro buses
   const nearbyTransmetroRoutes = useMemo(() => {
@@ -638,7 +637,7 @@ export function PassengerRoutesScreen({
   };
 
   const handleOpenPanel = () => {
-    setDrawerTab(hasActiveFilter ? 'filtered' : 'nearby');
+    setDrawerTab(hasRouteFilter ? 'filtered' : 'nearby');
     setPanelOpen(true);
   };
 
@@ -748,7 +747,11 @@ export function PassengerRoutesScreen({
               >
                 <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
                   <span className="text-xs font-bold text-slate-900">
-                    Filtrar líneas por empresa ({selectedCompanies.length || 'Todas'})
+                    Filtrar líneas por empresa (
+                    {selectedCompanies.length > 0
+                      ? `${selectedCompanies.length} sel.`
+                      : 'Ninguna'}
+                    )
                   </span>
                   <div className="flex items-center gap-2">
                     {selectedCompanies.length > 0 && (
@@ -874,7 +877,7 @@ export function PassengerRoutesScreen({
                 <span>
                   {selectedCompanies.length > 0
                     ? `Líneas (${selectedCompanies.length})`
-                    : `Todas (${BUS_COMPANIES.length})`}
+                    : 'Filtrar líneas'}
                 </span>
               </button>
 
@@ -895,7 +898,7 @@ export function PassengerRoutesScreen({
         <BarranquillaPassengerMap
           routeFilter={routeFilter}
           showTrafficLayer={false}
-          showCorridors={true}
+          showCorridors={false}
           busT01Position={busT01Position}
           busA12Position={busA12Position}
           userPosition={userPosition}
@@ -1122,9 +1125,9 @@ export function PassengerRoutesScreen({
           >
             <Route className="w-3.5 h-3.5 text-[#0D9488]" />
             <span>
-              {hasActiveFilter
+              {hasRouteFilter
                 ? `Ver rutas (${filteredRoutes.length})`
-                : `Ver rutas y buses (${filteredRoutes.length})`}
+                : `Buses cerca (${totalNearbyCount})`}
             </span>
             <ChevronUp className="w-4 h-4 text-slate-500" />
           </button>
@@ -1187,18 +1190,20 @@ export function PassengerRoutesScreen({
                   <span>Radio</span>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setFilterByMapBounds((v) => !v)}
-                  aria-pressed={filterByMapBounds}
-                  className={`min-h-[28px] px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${
-                    filterByMapBounds
-                      ? 'bg-teal-50 text-[#0D9488] border-[#0D9488]'
-                      : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                  }`}
-                >
-                  {filterByMapBounds ? 'Según el mapa ✓' : 'Ver todas'}
-                </button>
+                hasRouteFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterByMapBounds((v) => !v)}
+                    aria-pressed={filterByMapBounds}
+                    className={`min-h-[28px] px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${
+                      filterByMapBounds
+                        ? 'bg-teal-50 text-[#0D9488] border-[#0D9488]'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {filterByMapBounds ? 'Según el mapa ✓' : 'Toda la ciudad'}
+                  </button>
+                )
               )}
               {selectedRoute && (
                 <button
@@ -1428,10 +1433,39 @@ export function PassengerRoutesScreen({
                   })}
                 </>
               )
+            ) : !hasRouteFilter ? (
+              <div className="col-span-full py-6 px-3 text-center text-xs text-slate-600 space-y-2.5">
+                <p>
+                  No hay rutas mostradas por defecto. Selecciona una o más empresas o busca una línea para ver su trazado en el mapa.
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPanelOpen(false);
+                      setRoutesSearchOpen(true);
+                      setCompanyMenuOpen(true);
+                    }}
+                    className="px-3.5 py-2 rounded-lg bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>Filtrar líneas por empresa</span>
+                  </button>
+                </div>
+              </div>
             ) : filteredRoutes.length === 0 ? (
               <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
                 <p>No hay rutas visibles en esta área del mapa con los filtros actuales.</p>
                 <div className="flex items-center justify-center gap-2">
+                  {filterByMapBounds && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterByMapBounds(false)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
+                    >
+                      Ver en toda la ciudad
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -1439,16 +1473,9 @@ export function PassengerRoutesScreen({
                       setSearchText('');
                       setSelectedCompanies([]);
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
-                  >
-                    Mostrar las {COMPANY_BUS_ROUTES.length} rutas
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerSignal('reset')}
                     className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs font-medium"
                   >
-                    Alejar mapa
+                    Limpiar filtros
                   </button>
                 </div>
               </div>
