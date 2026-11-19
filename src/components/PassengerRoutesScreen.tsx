@@ -1,6 +1,8 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Compass,
   MapPin,
   Maximize2,
@@ -19,7 +21,6 @@ import {formatCOP, routeIntersectsBounds} from '../data/barranquillaTransit';
 import type {LatLng, MapBounds, ScreenId} from '../types/transit';
 import {BarranquillaRoutesMap, type MapControlSignal} from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
-import {QuickAppNav} from './QuickAppNav';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-sky-600',
@@ -59,14 +60,6 @@ function normalizeText(value: string): string {
     .toLowerCase();
 }
 
-const ZONE_PRESETS: Array<{id: string; label: string; target: LatLng; zoom: number}> = [
-  {id: 'all', label: 'Toda BAQ', target: {lat: 10.978, lng: -74.803}, zoom: 13},
-  {id: 'norte', label: 'Norte / Riomar', target: {lat: 11.0085, lng: -74.813}, zoom: 14},
-  {id: 'centro', label: 'Prado / Centro', target: {lat: 10.985, lng: -74.788}, zoom: 14},
-  {id: 'via40', label: 'Vía 40', target: {lat: 11.004, lng: -74.794}, zoom: 14},
-  {id: 'sur', label: 'Sur / Soledad', target: {lat: 10.946, lng: -74.798}, zoom: 14},
-];
-
 interface PassengerRoutesScreenProps {
   balance: number;
   onNavigate: (screen: ScreenId) => void;
@@ -81,10 +74,9 @@ export function PassengerRoutesScreen({
   const [searchText, setSearchText] = useState('');
   const [selectedCompany, setSelectedCompany] = useState('all');
   const [filterByMapBounds, setFilterByMapBounds] = useState(true);
-  const [activeZoneId, setActiveZoneId] = useState('all');
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<CompanyRouteItem | null>(null);
-  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const [mapSignal, setMapSignal] = useState<MapControlSignal | null>(null);
@@ -128,10 +120,17 @@ export function PassengerRoutesScreen({
     });
   }, [searchText, selectedCompany]);
 
+  const hasActiveFilter =
+    searchText.trim().length > 0 ||
+    selectedCompany !== 'all' ||
+    !filterByMapBounds ||
+    selectedRoute !== null;
+
   const filteredRoutes = useMemo(() => {
+    if (!hasActiveFilter) return [];
     if (!filterByMapBounds || !mapBounds) return baseMatches;
     return baseMatches.filter((r) => routeIntersectsBounds(r.center, r.path, mapBounds));
-  }, [baseMatches, filterByMapBounds, mapBounds]);
+  }, [hasActiveFilter, baseMatches, filterByMapBounds, mapBounds]);
 
   const handleSelectRoute = useCallback(
     (route: CompanyRouteItem) => {
@@ -141,12 +140,6 @@ export function PassengerRoutesScreen({
     },
     [triggerSignal]
   );
-
-  const handleSelectZone = (zone: (typeof ZONE_PRESETS)[number]) => {
-    setActiveZoneId(zone.id);
-    setFilterByMapBounds(true);
-    triggerSignal('focus', zone.target, zone.zoom);
-  };
 
   return (
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
@@ -162,8 +155,11 @@ export function PassengerRoutesScreen({
                 Rutas de Buses · BAQ
               </h1>
               <p className="text-[10.5px] text-slate-500 truncate">
-                {filteredRoutes.length} de {COMPANY_BUS_ROUTES.length}{' '}
-                {filterByMapBounds ? 'visibles en esta zona del mapa' : 'en toda Barranquilla'}
+                {hasActiveFilter
+                  ? `${filteredRoutes.length} rutas filtradas ${
+                      filterByMapBounds ? 'en esta zona del mapa' : 'en toda Barranquilla'
+                    }`
+                  : `Filtra por ruta o empresa (${COMPANY_BUS_ROUTES.length} disponibles)`}
               </p>
             </div>
           </div>
@@ -225,27 +221,6 @@ export function PassengerRoutesScreen({
             </select>
           </div>
         </div>
-
-        {/* Barranquilla Zone Quick-Jumps */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-          {ZONE_PRESETS.map((zone) => {
-            const active = activeZoneId === zone.id;
-            return (
-              <button
-                key={zone.id}
-                type="button"
-                onClick={() => handleSelectZone(zone)}
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                  active
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {zone.label}
-              </button>
-            );
-          })}
-        </div>
       </header>
 
       {/* Interactive Map Filtering Routes by Viewport */}
@@ -291,77 +266,120 @@ export function PassengerRoutesScreen({
               type="button"
               aria-label="Restablecer vista"
               disabled={zoomState.isAtDefault}
-              onClick={() => {
-                setActiveZoneId('all');
-                triggerSignal('reset');
-              }}
+              onClick={() => triggerSignal('reset')}
               className="w-9 h-8 flex items-center justify-center border-t border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-35"
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </aside>
-      </main>
-
-      {/* Compact Bottom Routes Results Drawer */}
-      <section
-        aria-label="Listado de rutas según el mapa"
-        className={`relative z-30 shrink-0 min-h-0 bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 pt-1.5 pb-3 flex flex-col gap-2 transition-all ${
-          sheetExpanded ? 'max-h-[68%]' : 'max-h-[29%]'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => setSheetExpanded((s) => !s)}
-          aria-label="Expandir o contraer lista de rutas"
-          className="w-10 h-1 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
-        />
-
-        <div className="flex items-center justify-between gap-2 shrink-0">
+        {/* Clickable trigger pill to open the hidden bottom routes panel */}
+        {!panelOpen && (
           <button
             type="button"
-            onClick={() => setSheetExpanded((s) => !s)}
-            className="text-xs font-bold text-slate-900 hover:text-[#0D9488] transition-colors"
+            onClick={() => setPanelOpen(true)}
+            aria-expanded={false}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3.5 py-2 rounded-full bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 shadow-lg flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap"
           >
-            Rutas encontradas ({filteredRoutes.length}) · {sheetExpanded ? 'Contraer' : 'Ver más'}
+            <Route className="w-3.5 h-3.5 text-[#0D9488]" />
+            <span>
+              {hasActiveFilter
+                ? `Ver rutas filtradas (${filteredRoutes.length})`
+                : 'Ver rutas filtradas'}
+            </span>
+            <ChevronUp className="w-4 h-4 text-slate-500" />
           </button>
-          {selectedRoute && (
+        )}
+      </main>
+
+      {/* Bottom Routes Results Drawer (hidden by default, opens when clicked) */}
+      {panelOpen && (
+        <section
+          aria-label="Listado de rutas según el mapa"
+          className="relative z-30 shrink-0 min-h-0 max-h-[58%] bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 pt-1.5 pb-3 flex flex-col gap-2 transition-all"
+        >
+          <button
+            type="button"
+            onClick={() => setPanelOpen(false)}
+            aria-label="Cerrar lista de rutas"
+            className="w-10 h-1 bg-slate-300 rounded-full mx-auto hover:bg-slate-400 transition-colors"
+          />
+
+          <div className="flex items-center justify-between gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setSelectedRoute(null)}
-              className="text-[11px] text-slate-500 hover:text-slate-900 font-medium"
+              onClick={() => setPanelOpen(false)}
+              className="text-xs font-bold text-slate-900 hover:text-[#0D9488] transition-colors flex items-center gap-1"
             >
-              Limpiar selección
+              <span>
+                {hasActiveFilter
+                  ? `Rutas filtradas (${filteredRoutes.length})`
+                  : 'Rutas filtradas (0)'}
+              </span>
+              <ChevronDown className="w-4 h-4 text-slate-500" />
             </button>
-          )}
-        </div>
-
-        <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2 overflow-y-auto pr-0.5 pb-14 content-start">
-          {filteredRoutes.length === 0 ? (
-            <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
-              <p>No hay rutas visibles en esta área del mapa con los filtros actuales.</p>
-              <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center gap-2">
+              {selectedRoute && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setFilterByMapBounds(false);
-                    setSearchText('');
-                    setSelectedCompany('all');
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
+                  onClick={() => setSelectedRoute(null)}
+                  className="text-[11px] text-slate-500 hover:text-slate-900 font-medium"
                 >
-                  Mostrar las 91 rutas
+                  Limpiar selección
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectZone(ZONE_PRESETS[0])}
-                  className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs font-medium"
-                >
-                  Alejar mapa
-                </button>
-              </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                className="text-[11px] text-slate-500 hover:text-slate-900 font-semibold"
+              >
+                Ocultar
+              </button>
             </div>
-          ) : (
+          </div>
+
+          <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2 overflow-y-auto pr-0.5 pb-14 content-start">
+            {!hasActiveFilter ? (
+              <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
+                <p>
+                  Aplica un filtro arriba (búsqueda o empresa) para mostrar solo las rutas
+                  filtradas.
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterByMapBounds(false)}
+                    className="px-3 py-1.5 rounded-lg bg-[#0D9488] text-white text-xs font-medium hover:bg-teal-700"
+                  >
+                    Mostrar todas ({COMPANY_BUS_ROUTES.length})
+                  </button>
+                </div>
+              </div>
+            ) : filteredRoutes.length === 0 ? (
+              <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
+                <p>No hay rutas visibles en esta área del mapa con los filtros actuales.</p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterByMapBounds(false);
+                      setSearchText('');
+                      setSelectedCompany('all');
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
+                  >
+                    Mostrar las {COMPANY_BUS_ROUTES.length} rutas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerSignal('reset')}
+                    className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs font-medium"
+                  >
+                    Alejar mapa
+                  </button>
+                </div>
+              </div>
+            ) : (
             filteredRoutes.map((route) => {
               const isSelected = selectedRoute?.id === route.id;
               return (
@@ -438,16 +456,10 @@ export function PassengerRoutesScreen({
                 </article>
               );
             })
-          )}
-        </div>
-      </section>
-
-      <QuickAppNav
-        currentScreen="rutas"
-        balance={balance}
-        onNavigate={onNavigate}
-        positionClass="bottom-24 left-4"
-      />
+            )}
+          </div>
+        </section>
+      )}
 
       <PassengerBottomNav
         currentScreen="rutas"

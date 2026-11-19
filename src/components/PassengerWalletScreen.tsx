@@ -15,7 +15,6 @@ import {
 import {formatCOP} from '../data/barranquillaTransit';
 import type {ScreenId, WalletTransaction} from '../types/transit';
 import {PassengerBottomNav} from './PassengerBottomNav';
-import {QuickAppNav} from './QuickAppNav';
 
 interface PassengerWalletScreenProps {
   balance: number;
@@ -489,19 +488,11 @@ export function PassengerWalletScreen({
         </div>
       </main>
 
-      <QuickAppNav
-        currentScreen="billetera"
-        balance={balance}
-        onNavigate={onNavigate}
-        onCurrentWalletAction={handleRefreshQr}
-        positionClass="bottom-24 left-4"
-      />
-
       <PassengerBottomNav
         currentScreen="billetera"
         balance={balance}
         onNavigate={onNavigate}
-        onQrAction={handleRefreshQr}
+        onCurrentWalletAction={handleRefreshQr}
         positionClass="absolute bottom-0 left-0 right-0"
       />
 

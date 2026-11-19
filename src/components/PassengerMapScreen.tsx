@@ -47,7 +47,6 @@ import {
   type NearbyBusMarker,
 } from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
-import {QuickAppNav} from './QuickAppNav';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-sky-600',
@@ -1156,7 +1155,7 @@ export function PassengerMapScreen({
         </div>
       </section>
 
-      <QuickAppNav
+      <PassengerBottomNav
         currentScreen="mapa"
         balance={balance}
         onNavigate={onNavigate}
@@ -1164,13 +1163,6 @@ export function PassengerMapScreen({
           setSheetExpanded(false);
           triggerSignal('centerUser', userPosition, 15);
         }}
-        positionClass="bottom-24 left-4"
-      />
-
-      <PassengerBottomNav
-        currentScreen="mapa"
-        balance={balance}
-        onNavigate={onNavigate}
       />
 
       {/* Station Details / Schedule Modal */}
