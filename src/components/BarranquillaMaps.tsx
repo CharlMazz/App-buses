@@ -96,38 +96,117 @@ function TransitCorridorsOverlay({
   return null;
 }
 
-function SelectedRouteOverlay({route}: {route: CompanyRouteItem | null | undefined}) {
+export type RouteDirectionMode = 'both' | 'ida' | 'regreso';
+
+function SelectedRouteOverlay({
+  route,
+  directionMode = 'both',
+}: {
+  route: CompanyRouteItem | null | undefined;
+  directionMode?: RouteDirectionMode;
+}) {
   const map = useMap();
   const mapsLib = useMapsLibrary('maps');
 
   useEffect(() => {
-    if (!map || !mapsLib || !route || route.path.length < 2) return;
+    if (!map || !mapsLib || !route) return;
 
-    const casing = new mapsLib.Polyline({
-      path: route.path,
-      strokeColor: '#FFFFFF',
-      strokeOpacity: 0.95,
-      strokeWeight: 8,
-      geodesic: true,
-      zIndex: 38,
-      map,
-    });
+    const overlays: google.maps.Polyline[] = [];
+    const idaPaths =
+      route.segments && route.segments.length > 0
+        ? route.segments.filter((s) => s.length >= 2)
+        : route.path.length >= 2
+        ? [route.path]
+        : [];
+    const showIda = directionMode !== 'regreso' && idaPaths.length > 0;
+    const showRegreso = directionMode !== 'ida' && route.returnPath.length >= 2;
 
-    const line = new mapsLib.Polyline({
-      path: route.path,
-      strokeColor: route.color,
-      strokeOpacity: 0.96,
-      strokeWeight: 5,
-      geodesic: true,
-      zIndex: 40,
-      map,
-    });
+    if (showRegreso) {
+      overlays.push(
+        new mapsLib.Polyline({
+          path: route.returnPath,
+          strokeColor: '#FFFFFF',
+          strokeOpacity: 0.9,
+          strokeWeight: 8,
+          geodesic: true,
+          zIndex: 37,
+          map,
+        })
+      );
+      overlays.push(
+        new mapsLib.Polyline({
+          path: route.returnPath,
+          strokeColor: '#E74C3C',
+          strokeOpacity: 0.92,
+          strokeWeight: 4.5,
+          geodesic: true,
+          zIndex: 39,
+          icons: [
+            {
+              icon: {
+                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                scale: 2.5,
+                fillColor: '#FFFFFF',
+                fillOpacity: 1,
+                strokeColor: '#B91C1C',
+                strokeWeight: 1.5,
+              },
+              offset: '55px',
+              repeat: '110px',
+            },
+          ],
+          map,
+        })
+      );
+    }
+
+    if (showIda) {
+      for (const segPath of idaPaths) {
+        overlays.push(
+          new mapsLib.Polyline({
+            path: segPath,
+            strokeColor: '#FFFFFF',
+            strokeOpacity: 0.95,
+            strokeWeight: 8.5,
+            geodesic: true,
+            zIndex: 38,
+            map,
+          })
+        );
+        overlays.push(
+          new mapsLib.Polyline({
+            path: segPath,
+            strokeColor: '#2ECC71',
+            strokeOpacity: 0.96,
+            strokeWeight: 5,
+            geodesic: true,
+            zIndex: 41,
+            icons: [
+              {
+                icon: {
+                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                  scale: 2.7,
+                  fillColor: '#FFFFFF',
+                  fillOpacity: 1,
+                  strokeColor: '#15803D',
+                  strokeWeight: 1.5,
+                },
+                offset: '35px',
+                repeat: '110px',
+              },
+            ],
+            map,
+          })
+        );
+      }
+    }
 
     return () => {
-      line.setMap(null);
-      casing.setMap(null);
+      for (const poly of overlays) {
+        poly.setMap(null);
+      }
     };
-  }, [map, mapsLib, route]);
+  }, [map, mapsLib, route, directionMode]);
 
   return null;
 }
@@ -254,32 +333,55 @@ function CameraController({
 
   useEffect(() => {
     if (!map || !signal) return;
-    const currentZoom = map.getZoom() ?? defaultZoom;
-    if (signal.type === 'zoomIn') {
-      map.setZoom(Math.min(19, currentZoom + 1));
-    } else if (signal.type === 'zoomOut') {
-      map.setZoom(Math.max(11, currentZoom - 1));
-    } else if (signal.type === 'reset') {
-      map.panTo(defaultCenter);
-      map.setZoom(defaultZoom);
-    } else if (signal.type === 'centerUser') {
-      map.panTo(signal.target ?? USER_GPS_POSITION);
-      map.setZoom(signal.zoom ?? 16);
-    } else if (signal.type === 'focus' && signal.target) {
-      map.panTo(signal.target);
-      if (signal.zoom) map.setZoom(signal.zoom);
-    } else if (signal.type === 'fitBounds' && signal.boundsPoints && signal.boundsPoints.length > 0) {
-      if (signal.boundsPoints.length === 1 || !coreLib) {
-        map.panTo(signal.boundsPoints[0]);
-        map.setZoom(signal.zoom ?? 15);
-      } else {
-        const bounds = new coreLib.LatLngBounds();
-        for (const pt of signal.boundsPoints) {
-          bounds.extend(pt);
+    const rafId = window.requestAnimationFrame(() => {
+      google.maps?.event?.trigger(map, 'resize');
+      const currentZoom = map.getZoom() ?? defaultZoom;
+      if (signal.type === 'zoomIn') {
+        map.setZoom(Math.min(19, currentZoom + 1));
+      } else if (signal.type === 'zoomOut') {
+        map.setZoom(Math.max(11, currentZoom - 1));
+      } else if (signal.type === 'reset') {
+        map.panTo(defaultCenter);
+        map.setZoom(defaultZoom);
+      } else if (signal.type === 'centerUser') {
+        map.panTo(signal.target ?? USER_GPS_POSITION);
+        map.setZoom(signal.zoom ?? 16);
+      } else if (signal.type === 'focus' && signal.target) {
+        map.panTo(signal.target);
+        if (signal.zoom) map.setZoom(signal.zoom);
+      } else if (
+        signal.type === 'fitBounds' &&
+        signal.boundsPoints &&
+        signal.boundsPoints.length > 0
+      ) {
+        if (signal.boundsPoints.length === 1 || !coreLib) {
+          map.panTo(signal.boundsPoints[0]);
+          map.setZoom(signal.zoom ?? 15);
+        } else {
+          const bounds = new coreLib.LatLngBounds();
+          for (const pt of signal.boundsPoints) {
+            bounds.extend(pt);
+          }
+          const ne = bounds.getNorthEast();
+          const sw = bounds.getSouthWest();
+          if (Math.abs(ne.lat() - sw.lat()) < 0.0025 && Math.abs(ne.lng() - sw.lng()) < 0.0025) {
+            map.panTo(bounds.getCenter());
+            map.setZoom(signal.zoom ?? 16);
+          } else {
+            const div = map.getDiv();
+            const h = div?.clientHeight || 520;
+            const w = div?.clientWidth || 380;
+            map.fitBounds(bounds, {
+              top: Math.min(110, Math.floor(h * 0.22)),
+              right: Math.min(40, Math.floor(w * 0.1)),
+              bottom: Math.min(72, Math.floor(h * 0.15)),
+              left: Math.min(32, Math.floor(w * 0.08)),
+            });
+          }
         }
-        map.fitBounds(bounds, {top: 90, right: 56, bottom: 260, left: 32});
       }
-    }
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, [map, coreLib, signal, defaultCenter, defaultZoom]);
 
   return null;
@@ -338,6 +440,7 @@ interface BarranquillaPassengerMapProps {
     position: LatLng;
   } | null;
   selectedCompanyRoute?: CompanyRouteItem | null;
+  routeDirectionMode?: RouteDirectionMode;
   catalogRoutes?: CompanyRouteItem[];
   userRadiusMeters?: number | null;
   nearbyBuses?: NearbyBusMarker[];
@@ -361,6 +464,7 @@ export function BarranquillaPassengerMap({
   originMarker,
   selectedDestination,
   selectedCompanyRoute,
+  routeDirectionMode = 'both',
   catalogRoutes = [],
   userRadiusMeters,
   nearbyBuses = [],
@@ -379,7 +483,13 @@ export function BarranquillaPassengerMap({
   const showT01 = routeFilter === 'all' || routeFilter === 'troncal';
   const showA12 = routeFilter === 'all' || routeFilter === 'alimentador';
   const activeOrigin = originMarker?.position ?? userPosition;
-  const visibleNearbyMarkers = nearbyBuses.slice(0, 5);
+  const visibleNearbyMarkers = React.useMemo(() => {
+    const top = nearbyBuses.slice(0, 5);
+    if (!selectedCompanyRoute) return top;
+    const selectedBus = nearbyBuses.find((b) => b.id === `bus-${selectedCompanyRoute.id}`);
+    if (!selectedBus || top.some((b) => b.id === selectedBus.id)) return top;
+    return [selectedBus, ...top.slice(0, 4)];
+  }, [nearbyBuses, selectedCompanyRoute]);
 
   return (
     <div className="absolute inset-0 w-full h-full">
@@ -421,10 +531,9 @@ export function BarranquillaPassengerMap({
         />
         <RoutesBoundsWatcher onBoundsChanged={onBoundsChanged} />
         <TransitCorridorsOverlay
-          visible={showCorridors}
+          visible={showCorridors && catalogRoutes.length === 0 && !selectedCompanyRoute}
           routeFilter={routeFilter}
           showTraffic={showTrafficLayer}
-          dimmed={Boolean(selectedCompanyRoute) || catalogRoutes.length > 0}
         />
         <RoutesCatalogPolylines
           routes={catalogRoutes}
@@ -433,7 +542,10 @@ export function BarranquillaPassengerMap({
         />
         <RadiusCircleOverlay center={activeOrigin} radiusMeters={userRadiusMeters} />
         <TripConnectionOverlay origin={activeOrigin} destination={selectedDestination?.position} />
-        <SelectedRouteOverlay route={selectedCompanyRoute} />
+        <SelectedRouteOverlay
+          route={selectedCompanyRoute}
+          directionMode={routeDirectionMode}
+        />
 
         {/* Clean Station Dots (Primary labeled, secondary compact dots) */}
         {TRANSIT_STATIONS.map((station) => (
@@ -536,23 +648,47 @@ export function BarranquillaPassengerMap({
           </AdvancedMarker>
         ))}
 
-        {/* Selected Bus Company Route Marker */}
+        {/* Selected Bus Company Route Endpoints & Badge (rutaquilla.me style) */}
         {selectedCompanyRoute && (
-          <AdvancedMarker
-            position={selectedCompanyRoute.center}
-            zIndex={75}
-            title={`${selectedCompanyRoute.company} · Ruta ${selectedCompanyRoute.code}`}
-          >
-            <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
-              <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-              <span className="font-headline text-xs font-bold whitespace-nowrap">
-                {selectedCompanyRoute.code}
-              </span>
-              <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
-                · {selectedCompanyRoute.company}
-              </span>
-            </div>
-          </AdvancedMarker>
+          <>
+            <AdvancedMarker
+              position={selectedCompanyRoute.startPoint.position}
+              zIndex={76}
+              title={`Inicio: ${selectedCompanyRoute.startPoint.name}`}
+            >
+              <div className="flex flex-col items-center">
+                <span className="px-2 py-0.5 rounded-full bg-[#16A34A] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
+                  Inicio · {selectedCompanyRoute.startPoint.name}
+                </span>
+              </div>
+            </AdvancedMarker>
+            <AdvancedMarker
+              position={selectedCompanyRoute.endPoint.position}
+              zIndex={76}
+              title={`Retorno: ${selectedCompanyRoute.endPoint.name}`}
+            >
+              <div className="flex flex-col items-center">
+                <span className="px-2 py-0.5 rounded-full bg-[#DC2626] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
+                  Retorno · {selectedCompanyRoute.endPoint.name}
+                </span>
+              </div>
+            </AdvancedMarker>
+            <AdvancedMarker
+              position={selectedCompanyRoute.center}
+              zIndex={75}
+              title={`${selectedCompanyRoute.company} · ${selectedCompanyRoute.name}`}
+            >
+              <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
+                <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                <span className="font-headline text-xs font-bold whitespace-nowrap">
+                  {selectedCompanyRoute.code}
+                </span>
+                <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
+                  · {selectedCompanyRoute.company}
+                </span>
+              </div>
+            </AdvancedMarker>
+          </>
         )}
 
         {/* Custom Origin Marker (Punto de partida) */}
@@ -657,22 +793,47 @@ function RoutesCatalogPolylines({
     if (!map || !mapsLib) return;
 
     const polylines: google.maps.Polyline[] = [];
-    const subset = routes.slice(0, 16);
+    const useCasing = !selectedRouteId && routes.length <= 40;
+    const isDenseOverview = !selectedRouteId && routes.length > 40;
 
-    for (const route of subset) {
-      if (route.path.length < 2 || route.id === selectedRouteId) continue;
-      const poly = new mapsLib.Polyline({
-        path: route.path,
-        strokeColor: route.color,
-        strokeOpacity: selectedRouteId ? 0.14 : 0.44,
-        strokeWeight: selectedRouteId ? 2 : 3,
-        geodesic: true,
-        clickable: true,
-        zIndex: 12,
-        map,
-      });
-      poly.addListener('click', () => onSelectRoute(route));
-      polylines.push(poly);
+    for (const route of routes) {
+      if (route.id === selectedRouteId) continue;
+      const paths =
+        route.segments && route.segments.length > 0
+          ? route.segments.filter((s) => s.length >= 2)
+          : route.path.length >= 2
+          ? [route.path]
+          : [];
+      if (paths.length === 0) continue;
+
+      for (const segPath of paths) {
+        if (useCasing) {
+          const casing = new mapsLib.Polyline({
+            path: segPath,
+            strokeColor: '#FFFFFF',
+            strokeOpacity: 0.65,
+            strokeWeight: 5,
+            geodesic: true,
+            clickable: false,
+            zIndex: 11,
+            map,
+          });
+          polylines.push(casing);
+        }
+
+        const poly = new mapsLib.Polyline({
+          path: segPath,
+          strokeColor: route.color,
+          strokeOpacity: selectedRouteId ? 0.14 : isDenseOverview ? 0.72 : 0.85,
+          strokeWeight: selectedRouteId ? 2 : isDenseOverview ? 2.6 : 3.2,
+          geodesic: true,
+          clickable: true,
+          zIndex: 13,
+          map,
+        });
+        poly.addListener('click', () => onSelectRoute(route));
+        polylines.push(poly);
+      }
     }
 
     return () => {

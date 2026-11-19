@@ -2,10 +2,12 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
   Bus,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Compass,
+  Filter,
   Loader2,
   LocateFixed,
   MapPin,
@@ -49,35 +51,42 @@ import {
   BarranquillaPassengerMap,
   type MapControlSignal,
   type NearbyBusMarker,
+  type RouteDirectionMode,
 } from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
 import {PWAInstallButton} from './PWAInstallButton';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
-  Coolitoral: 'bg-sky-600',
-  Coochofal: 'bg-red-600',
-  Sobusa: 'bg-green-600',
-  'La Carolina': 'bg-teal-600',
-  Sodetrans: 'bg-violet-600',
-  Transdiaz: 'bg-blue-600',
-  Transurbar: 'bg-orange-600',
-  Monterrey: 'bg-emerald-600',
-  'Lucero San Felipe': 'bg-amber-600',
-  Cootransnorte: 'bg-cyan-600',
-  'Flota Ángulo': 'bg-purple-600',
-  'Flota Roja': 'bg-rose-700',
-  Lolaya: 'bg-green-700',
-  Trasalianco: 'bg-blue-700',
-  Trasalfa: 'bg-indigo-600',
-  Cootrab: 'bg-teal-700',
-  Cootransco: 'bg-emerald-700',
-  Cootransporcar: 'bg-orange-700',
-  Cootrasol: 'bg-sky-700',
-  Cooasoatlán: 'bg-violet-700',
-  Transmecar: 'bg-amber-700',
-  Transoledad: 'bg-rose-600',
-  Embusa: 'bg-indigo-700',
-  Cootracolsur: 'bg-slate-700',
+  Coolitoral: 'bg-cyan-600',
+  Coochofal: 'bg-teal-600',
+  Sobusa: 'bg-amber-600',
+  Sobrusa: 'bg-amber-500',
+  'La Carolina': 'bg-indigo-600',
+  Sodis: 'bg-purple-500',
+  Sodetrans: 'bg-pink-600',
+  Transmetro: 'bg-blue-600',
+  Transmecar: 'bg-emerald-600',
+  Transdiaz: 'bg-rose-600',
+  Transurbar: 'bg-orange-700',
+  Transoledad: 'bg-teal-700',
+  Trasalfa: 'bg-purple-600',
+  Trasalianco: 'bg-violet-600',
+  Monterrey: 'bg-green-600',
+  'Lucero San Felipe': 'bg-pink-700',
+  Cootransnorte: 'bg-violet-700',
+  Cootrantico: 'bg-sky-600',
+  Cootrab: 'bg-lime-600',
+  Cootransco: 'bg-sky-700',
+  Cootransporcar: 'bg-emerald-700',
+  Lolaya: 'bg-red-600',
+  Cootrasol: 'bg-cyan-700',
+  Cooasoatlán: 'bg-orange-600',
+  Embusa: 'bg-yellow-600',
+  'Flota Ángulo': 'bg-indigo-700',
+  'Flota Roja': 'bg-red-700',
+  Excolcar: 'bg-blue-500',
+  Tubara: 'bg-cyan-500',
+  Otra: 'bg-slate-600',
 };
 
 function getCompanyBadgeClass(company: string): string {
@@ -91,11 +100,31 @@ function normalizeText(value: string): string {
     .toLowerCase();
 }
 
-function interpolateAlongPath(path: LatLng[], progress: number): LatLng {
+function findNearestPathIndex(point: LatLng, path: LatLng[]): number {
+  if (path.length <= 1) return 0;
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    const dLat = path[i].lat - point.lat;
+    const dLng = path[i].lng - point.lng;
+    const distSq = dLat * dLat + dLng * dLng;
+    if (distSq < bestDist) {
+      bestDist = distSq;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+function interpolateNearIndex(path: LatLng[], anchorIdx: number, progress: number): LatLng {
   if (path.length === 0) return BARRANQUILLA_PASSENGER_CENTER;
   if (path.length === 1) return path[0];
+  // Move smoothly along a local ~10-vertex window around anchorIdx so the bus approaches near the user
+  const windowSize = Math.min(8, Math.max(2, Math.floor(path.length * 0.15)));
+  const startIdx = Math.max(0, Math.min(path.length - 2, anchorIdx - Math.floor(windowSize / 2)));
+  const endIdx = Math.min(path.length - 1, startIdx + windowSize);
   const clamped = ((progress % 1) + 1) % 1;
-  const scaled = clamped * (path.length - 1);
+  const scaled = startIdx + clamped * (endIdx - startIdx);
   const idx = Math.min(path.length - 2, Math.floor(scaled));
   const frac = scaled - idx;
   const a = path[idx];
@@ -145,15 +174,18 @@ export function PassengerRoutesScreen({
     setDestQuery,
   } = tripPlanner;
 
-  // Catalog filter state (from Rutas)
+  // Catalog filter state (from Rutas & RutaQuilla)
   const [routesSearchOpen, setRoutesSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [topSearchFocused, setTopSearchFocused] = useState(false);
   const [isResolvingTopPlace, setIsResolvingTopPlace] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState('all');
-  const [filterByMapBounds, setFilterByMapBounds] = useState(true);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
+  const [filterByMapBounds, setFilterByMapBounds] = useState(false);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<CompanyRouteItem | null>(null);
+  const [routeDirectionMode, setRouteDirectionMode] = useState<RouteDirectionMode>('both');
+  const [showRouteTextDetails, setShowRouteTextDetails] = useState(false);
 
   // Live nearby bus state (from Explorar)
   const [radiusFilter, setRadiusFilter] = useState<number | null>(1000);
@@ -356,32 +388,46 @@ export function PassengerRoutesScreen({
     );
   }, [onUpdateUserPosition, setOriginMarker, setOriginQuery, triggerSignal]);
 
-  // Filtered routes catalog (only shown when user applies a filter)
+  const toggleCompany = useCallback((companyName: string) => {
+    setSelectedCompanies((prev) =>
+      prev.includes(companyName)
+        ? prev.filter((c) => c !== companyName)
+        : [...prev, companyName]
+    );
+    setDrawerTab('filtered');
+  }, []);
+
+  // Filtered routes catalog (all 145 merged AMBQ + RutaQuilla + Transmetro routes)
   const baseMatches = useMemo(() => {
     const q = normalizeText(searchText.trim());
     return COMPANY_BUS_ROUTES.filter((r) => {
-      const matchesCompany = selectedCompany === 'all' || r.company === selectedCompany;
+      const matchesCompany =
+        selectedCompanies.length === 0 || selectedCompanies.includes(r.company);
       const matchesQuery =
         !q ||
         normalizeText(r.code).includes(q) ||
+        normalizeText(r.name).includes(q) ||
         normalizeText(r.company).includes(q) ||
         normalizeText(r.description).includes(q) ||
-        normalizeText(r.corridor).includes(q);
+        normalizeText(r.corridor).includes(q) ||
+        normalizeText(r.recorridoTextual.ida).includes(q) ||
+        normalizeText(r.recorridoTextual.regreso).includes(q);
       return matchesCompany && matchesQuery;
     });
-  }, [searchText, selectedCompany]);
+  }, [searchText, selectedCompanies]);
 
   const hasActiveFilter =
     searchText.trim().length > 0 ||
-    selectedCompany !== 'all' ||
-    !filterByMapBounds ||
+    selectedCompanies.length > 0 ||
     selectedRoute !== null;
 
   const filteredRoutes = useMemo(() => {
-    if (!hasActiveFilter) return [];
     if (!filterByMapBounds || !mapBounds) return baseMatches;
-    return baseMatches.filter((r) => routeIntersectsBounds(r.center, r.path, mapBounds));
-  }, [hasActiveFilter, baseMatches, filterByMapBounds, mapBounds]);
+    return baseMatches.filter((r) => {
+      const pts = r.segments ? r.segments.flat() : [...r.path, ...r.returnPath];
+      return routeIntersectsBounds(r.center, pts, mapBounds);
+    });
+  }, [baseMatches, filterByMapBounds, mapBounds]);
 
   // Live nearby TransMetro buses
   const nearbyTransmetroRoutes = useMemo(() => {
@@ -400,7 +446,7 @@ export function PassengerRoutesScreen({
       };
     })
       .filter((r) => {
-        if (selectedCompany !== 'all') return false;
+        if (selectedCompanies.length > 0 && !selectedCompanies.includes('Transmetro')) return false;
         if (radiusFilter !== null && r.distanceMeters > radiusFilter) return false;
         if (onlyToDestination && selectedDestination && !r.nearDestination) return false;
         if (
@@ -419,27 +465,36 @@ export function PassengerRoutesScreen({
     busT01Position,
     busA12Position,
     searchText,
-    selectedCompany,
+    selectedCompanies,
     radiusFilter,
     onlyToDestination,
     selectedDestination,
   ]);
 
+  // Precompute static polyline distances only when origin/destination changes (keeps 2.5s tick instant)
+  const staticRouteDistances = useMemo(() => {
+    return COMPANY_BUS_ROUTES.map((route) => {
+      const distanceToRoute = getDistanceToPolylineMeters(activeOrigin, route.path);
+      const nearestIdx = findNearestPathIndex(activeOrigin, route.path);
+      const destDist = selectedDestination
+        ? getDistanceToPolylineMeters(selectedDestination.position, route.path)
+        : null;
+      return {distanceToRoute, nearestIdx, destDist};
+    });
+  }, [activeOrigin, selectedDestination]);
+
   // Live nearby company buses
   const nearbyCompanyRoutes = useMemo(() => {
     const q = normalizeText(searchText.trim());
     const mapped = COMPANY_BUS_ROUTES.map((route, idx) => {
-      const distanceToRoute = getDistanceToPolylineMeters(activeOrigin, route.path);
-      const speedSeed = ((tick * 0.045 + idx * 0.17) % 1 + 1) % 1;
-      const liveBusPos = interpolateAlongPath(route.path, speedSeed);
+      const {distanceToRoute, nearestIdx, destDist} = staticRouteDistances[idx];
+      const speedSeed = ((tick * 0.06 + idx * 0.19) % 1 + 1) % 1;
+      const liveBusPos = interpolateNearIndex(route.path, nearestIdx, speedSeed);
       const busDistanceMeters = getDistanceMeters(activeOrigin, liveBusPos);
       const effectiveDist = Math.min(distanceToRoute, busDistanceMeters);
-      const destDist = selectedDestination
-        ? getDistanceToPolylineMeters(selectedDestination.position, route.path)
-        : null;
       const liveEta = Math.max(
         1,
-        Math.min(18, Math.round(busDistanceMeters / 240) + (route.etaMinutes % 4))
+        Math.min(18, Math.round(effectiveDist / 190) + (route.etaMinutes % 3))
       );
 
       return {
@@ -452,12 +507,15 @@ export function PassengerRoutesScreen({
         servesDestination: destDist !== null ? destDist <= 1800 : false,
       };
     }).filter((item) => {
-      if (selectedCompany !== 'all' && item.route.company !== selectedCompany) return false;
+      if (selectedCompanies.length > 0 && !selectedCompanies.includes(item.route.company)) {
+        return false;
+      }
       if (radiusFilter !== null && item.distanceMeters > radiusFilter) return false;
       if (
         q &&
         !normalizeText(item.route.company).includes(q) &&
         !normalizeText(item.route.code).includes(q) &&
+        !normalizeText(item.route.name).includes(q) &&
         !normalizeText(item.route.description).includes(q) &&
         !normalizeText(item.route.corridor).includes(q)
       ) {
@@ -489,16 +547,17 @@ export function PassengerRoutesScreen({
     });
   }, [
     activeOrigin,
+    staticRouteDistances,
     tick,
     searchText,
-    selectedCompany,
+    selectedCompanies,
     radiusFilter,
     onlyToDestination,
     selectedDestination,
   ]);
 
   const nearbyBusMarkers: NearbyBusMarker[] = useMemo(() => {
-    return nearbyCompanyRoutes.slice(0, 8).map((item) => ({
+    return nearbyCompanyRoutes.slice(0, 12).map((item) => ({
       id: `bus-${item.route.id}`,
       code: item.route.code,
       company: item.route.company,
@@ -514,8 +573,19 @@ export function PassengerRoutesScreen({
   const handleSelectRoute = useCallback(
     (route: CompanyRouteItem) => {
       setSelectedRoute(route);
-      triggerSignal('focus', route.center, 14);
-      setToastMsg(`${route.company} · Ruta ${route.code}`);
+      setRouteDirectionMode('both');
+      setShowRouteTextDetails(false);
+      setPanelOpen(false);
+      const allPoints = [
+        ...(route.segments ? route.segments.flat() : route.path),
+        ...route.returnPath,
+      ];
+      if (allPoints.length >= 2) {
+        triggerSignal('fitBounds', route.center, 14, allPoints);
+      } else {
+        triggerSignal('focus', route.center, 14);
+      }
+      setToastMsg(`${route.company} · ${route.name}`);
     },
     [triggerSignal]
   );
@@ -669,6 +739,73 @@ export function PassengerRoutesScreen({
               </div>
             )}
 
+            {/* Multi-Select Checkmark Company Popover opening upward */}
+            {companyMenuOpen && (
+              <div
+                role="dialog"
+                aria-label="Seleccionar empresas de buses"
+                className="pointer-events-auto mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 p-2.5 max-h-[42vh] flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
+                  <span className="text-xs font-bold text-slate-900">
+                    Filtrar líneas por empresa ({selectedCompanies.length || 'Todas'})
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {selectedCompanies.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCompanies([])}
+                        className="text-[11px] font-semibold text-[#0D9488] hover:underline"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCompanyMenuOpen(false)}
+                      aria-label="Cerrar selector de empresas"
+                      className="p-0.5 text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-y-auto grid grid-cols-2 @[480px]:grid-cols-3 gap-1.5 pr-0.5">
+                  {BUS_COMPANIES.map((c) => {
+                    const checked = selectedCompanies.includes(c.name);
+                    return (
+                      <button
+                        key={c.name}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={checked}
+                        onClick={() => toggleCompany(c.name)}
+                        className={`px-2 py-1.5 rounded-[8px] border text-left flex items-center gap-1.5 text-[11px] transition-colors ${
+                          checked
+                            ? 'bg-teal-50 border-[#0D9488] text-slate-900 font-semibold'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span
+                          className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                            checked
+                              ? 'bg-[#0D9488] border-[#0D9488] text-white'
+                              : 'bg-white border-slate-300'
+                          }`}
+                        >
+                          {checked && <Check className="w-3 h-3" />}
+                        </span>
+                        <span className="truncate flex-1">{c.name}</span>
+                        <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                          {c.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="pointer-events-auto bg-white/95 backdrop-blur-sm rounded-[12px] shadow-lg border border-slate-200 p-1.5 flex items-center gap-1.5">
               <div className="relative flex-1 min-w-0 flex items-center">
                 <Search
@@ -678,9 +815,12 @@ export function PassengerRoutesScreen({
                 <input
                   ref={topSearchInputRef}
                   type="text"
-                  aria-label="Buscar ruta, lugar, barrio o dirección"
+                  aria-label="Buscar ruta, barrio, lugar o dirección"
                   value={searchText}
-                  onFocus={() => setTopSearchFocused(true)}
+                  onFocus={() => {
+                    setTopSearchFocused(true);
+                    setCompanyMenuOpen(false);
+                  }}
                   onBlur={() => {
                     window.setTimeout(() => setTopSearchFocused(false), 150);
                   }}
@@ -694,10 +834,11 @@ export function PassengerRoutesScreen({
                       void handleTopSearchSubmit();
                     } else if (e.key === 'Escape') {
                       setTopSearchFocused(false);
+                      setCompanyMenuOpen(false);
                       setRoutesSearchOpen(false);
                     }
                   }}
-                  placeholder="Buscar lugar, dirección o ruta..."
+                  placeholder="Buscar barrio, ruta o dirección..."
                   className="w-full h-8 pl-8 pr-6 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
                 />
                 {searchText && (
@@ -716,26 +857,33 @@ export function PassengerRoutesScreen({
                 )}
               </div>
 
-              <select
-                aria-label="Filtrar por empresa"
-                value={selectedCompany}
-                onChange={(e) => {
-                  setSelectedCompany(e.target.value);
-                  if (e.target.value !== 'all') setDrawerTab('filtered');
+              <button
+                type="button"
+                onClick={() => {
+                  setTopSearchFocused(false);
+                  setCompanyMenuOpen((v) => !v);
                 }}
-                className="w-[116px] @[480px]:w-[165px] shrink-0 h-8 px-2 py-0 rounded-[8px] bg-slate-100/90 border border-slate-200 text-[11.5px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488] truncate"
+                aria-expanded={companyMenuOpen}
+                className={`h-8 px-2.5 shrink-0 rounded-[8px] border text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors ${
+                  selectedCompanies.length > 0 || companyMenuOpen
+                    ? 'bg-teal-50 border-[#0D9488] text-[#0D9488]'
+                    : 'bg-slate-100/90 border-slate-200 text-slate-800 hover:bg-slate-200/70'
+                }`}
               >
-                <option value="all">Todas ({BUS_COMPANIES.length})</option>
-                {BUS_COMPANIES.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name} ({c.count})
-                  </option>
-                ))}
-              </select>
+                <Filter className="w-3.5 h-3.5" />
+                <span>
+                  {selectedCompanies.length > 0
+                    ? `Líneas (${selectedCompanies.length})`
+                    : `Todas (${BUS_COMPANIES.length})`}
+                </span>
+              </button>
 
               <button
                 type="button"
-                onClick={() => setRoutesSearchOpen(false)}
+                onClick={() => {
+                  setCompanyMenuOpen(false);
+                  setRoutesSearchOpen(false);
+                }}
                 aria-label="Cerrar barra de búsqueda"
                 className="w-8 h-8 shrink-0 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors"
               >
@@ -754,6 +902,7 @@ export function PassengerRoutesScreen({
           originMarker={originMarker}
           selectedDestination={selectedDestination}
           selectedCompanyRoute={selectedRoute}
+          routeDirectionMode={routeDirectionMode}
           catalogRoutes={filteredRoutes}
           userRadiusMeters={radiusFilter}
           nearbyBuses={nearbyBusMarkers}
@@ -772,8 +921,8 @@ export function PassengerRoutesScreen({
           }}
           onSelectNearbyBus={(bus) => {
             const found = COMPANY_BUS_ROUTES.find((r) => `bus-${r.id}` === bus.id);
-            if (found) setSelectedRoute(found);
-            triggerSignal('focus', bus.position, 15);
+            if (found) handleSelectRoute(found);
+            else triggerSignal('focus', bus.position, 15);
             setToastMsg(
               `${bus.company} (${bus.code}) • a ${formatDistanceLabel(bus.distanceMeters)} • ${bus.etaMinutes} min`
             );
@@ -784,7 +933,7 @@ export function PassengerRoutesScreen({
         />
 
         {/* Compact Floating PWA Install Prompt (auto-hidden when installed or unsupported) */}
-        {!(originMarker || selectedDestination) && (
+        {!(originMarker || selectedDestination) && !selectedRoute && (
           <div className="absolute top-2.5 left-2.5 z-20 pointer-events-auto">
             <PWAInstallButton variant="compact" />
           </div>
@@ -842,6 +991,127 @@ export function PassengerRoutesScreen({
           </button>
         </aside>
 
+        {/* Floating Selected Route Legend & Details Card (RutaQuilla Ida/Regreso style) */}
+        {selectedRoute && !(originMarker || selectedDestination) && (
+          <div className="absolute top-2.5 left-2.5 right-14 z-20 pointer-events-auto">
+            <div className="bg-white/95 backdrop-blur-sm rounded-[14px] shadow-xl border border-slate-200 p-2.5 space-y-2 max-w-md">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <span
+                    className={`px-2 py-0.5 ${getCompanyBadgeClass(
+                      selectedRoute.company
+                    )} text-white font-headline text-xs font-bold rounded-[6px] shrink-0 mt-0.5`}
+                  >
+                    {selectedRoute.code}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 truncate">
+                      {selectedRoute.name}
+                    </p>
+                    <p className="text-[11px] text-slate-600 truncate">
+                      {selectedRoute.company} · {formatCOP(selectedRoute.fareCop)}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedRoute(null);
+                    setShowRouteTextDetails(false);
+                  }}
+                  aria-label="Cerrar ruta seleccionada"
+                  className="p-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Ida / Regreso / Ambos direction toggle pills or official AMBQ trace label */}
+              <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                {selectedRoute.returnPath.length >= 2 ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setRouteDirectionMode('both')}
+                      className={`px-2 py-1 rounded-full text-[10.5px] font-semibold transition-colors ${
+                        routeDirectionMode === 'both'
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Ida + Vuelta
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRouteDirectionMode('ida')}
+                      className={`px-2 py-1 rounded-full text-[10.5px] font-semibold flex items-center gap-1 transition-colors ${
+                        routeDirectionMode === 'ida'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#2ECC71] border border-white" />
+                      <span>Ida</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRouteDirectionMode('regreso')}
+                      className={`px-2 py-1 rounded-full text-[10.5px] font-semibold flex items-center gap-1 transition-colors ${
+                        routeDirectionMode === 'regreso'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-red-50 text-red-800 hover:bg-red-100'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#E74C3C] border border-white" />
+                      <span>Vuelta</span>
+                    </button>
+                  </div>
+                ) : (
+                  <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[10.5px] font-semibold inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#2ECC71] border border-white" />
+                    <span>{selectedRoute.corridor}</span>
+                  </span>
+                )}
+
+                {(selectedRoute.barriosCubiertos.length > 0 ||
+                  selectedRoute.recorridoTextual.ida ||
+                  selectedRoute.recorridoTextual.regreso) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRouteTextDetails((v) => !v)}
+                    className="text-[11px] font-semibold text-[#0D9488] hover:underline"
+                  >
+                    {showRouteTextDetails ? 'Ocultar calles' : 'Barrios y calles'}
+                  </button>
+                )}
+              </div>
+
+              {showRouteTextDetails && (
+                <div className="pt-1.5 border-t border-slate-100 space-y-1.5 max-h-36 overflow-y-auto text-[11px] text-slate-700">
+                  {selectedRoute.barriosCubiertos.length > 0 && (
+                    <p>
+                      <strong className="text-slate-900">Barrios:</strong>{' '}
+                      {selectedRoute.barriosCubiertos.join(', ')}
+                    </p>
+                  )}
+                  {selectedRoute.recorridoTextual.ida && (
+                    <p>
+                      <strong className="text-emerald-700">Ida:</strong>{' '}
+                      {selectedRoute.recorridoTextual.ida}
+                    </p>
+                  )}
+                  {selectedRoute.recorridoTextual.regreso && (
+                    <p>
+                      <strong className="text-red-700">Regreso:</strong>{' '}
+                      {selectedRoute.recorridoTextual.regreso}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Clickable trigger pill to open the hidden bottom panel */}
         {!panelOpen && !routesSearchOpen && (
           <button
@@ -853,8 +1123,8 @@ export function PassengerRoutesScreen({
             <Route className="w-3.5 h-3.5 text-[#0D9488]" />
             <span>
               {hasActiveFilter
-                ? `Ver rutas filtradas (${filteredRoutes.length})`
-                : `Ver buses y rutas (${totalNearbyCount})`}
+                ? `Ver rutas (${filteredRoutes.length})`
+                : `Ver rutas y buses (${filteredRoutes.length})`}
             </span>
             <ChevronUp className="w-4 h-4 text-slate-500" />
           </button>
@@ -997,7 +1267,7 @@ export function PassengerRoutesScreen({
                     type="button"
                     onClick={() => {
                       setRadiusFilter(null);
-                      setSelectedCompany('all');
+                      setSelectedCompanies([]);
                       setSearchText('');
                       setOnlyToDestination(false);
                     }}
@@ -1015,6 +1285,7 @@ export function PassengerRoutesScreen({
                       <article
                         key={route.id}
                         onClick={() => {
+                          setPanelOpen(false);
                           triggerSignal('focus', route.busPos, 16);
                           setToastMsg(`Siguiendo ${route.code} (${route.busId}) en tiempo real`);
                         }}
@@ -1076,12 +1347,15 @@ export function PassengerRoutesScreen({
                         key={route.id}
                         onClick={() => {
                           setSelectedRoute(route);
-                          triggerSignal('focus', liveBusPos, 15);
+                          setRouteDirectionMode('both');
+                          setShowRouteTextDetails(false);
+                          setPanelOpen(false);
+                          triggerSignal('fitBounds', liveBusPos, 15, [activeOrigin, liveBusPos]);
                           setToastMsg(
                             `${route.company} · ${route.code} a ${formatDistanceLabel(distanceMeters)}`
                           );
                         }}
-                        className={`p-3 rounded-[14px] border transition-all cursor-pointer ${
+                        className={`group p-3 rounded-[14px] border transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-teal-50/70 border-[#0D9488] ring-1 ring-[#0D9488]'
                             : 'bg-slate-50 border-slate-200 hover:border-[#0D9488]'
@@ -1124,7 +1398,7 @@ export function PassengerRoutesScreen({
                         <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between gap-2 text-xs">
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800 truncate">
                             <Bus className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">
+                            <span className="truncate group-hover:underline">
                               {servesDestination
                                 ? 'Conecta cerca a tu destino'
                                 : isSelected
@@ -1154,22 +1428,6 @@ export function PassengerRoutesScreen({
                   })}
                 </>
               )
-            ) : !hasActiveFilter ? (
-              <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
-                <p>
-                  Aplica un filtro arriba (búsqueda o empresa) para mostrar solo las rutas
-                  filtradas.
-                </p>
-                <div className="flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFilterByMapBounds(false)}
-                    className="px-3 py-1.5 rounded-lg bg-[#0D9488] text-white text-xs font-medium hover:bg-teal-700"
-                  >
-                    Mostrar todas ({COMPANY_BUS_ROUTES.length})
-                  </button>
-                </div>
-              </div>
             ) : filteredRoutes.length === 0 ? (
               <div className="col-span-full py-6 text-center text-xs text-slate-500 space-y-2">
                 <p>No hay rutas visibles en esta área del mapa con los filtros actuales.</p>
@@ -1179,7 +1437,7 @@ export function PassengerRoutesScreen({
                     onClick={() => {
                       setFilterByMapBounds(false);
                       setSearchText('');
-                      setSelectedCompany('all');
+                      setSelectedCompanies([]);
                     }}
                     className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-medium"
                   >
@@ -1201,7 +1459,7 @@ export function PassengerRoutesScreen({
                   <article
                     key={route.id}
                     onClick={() => handleSelectRoute(route)}
-                    className={`p-3 rounded-[14px] border transition-all cursor-pointer ${
+                    className={`group p-3 rounded-[14px] border transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-teal-50/70 border-[#0D9488] ring-1 ring-[#0D9488]'
                         : 'bg-slate-50 border-slate-200 hover:border-[#0D9488]'
@@ -1218,10 +1476,10 @@ export function PassengerRoutesScreen({
                         </span>
                         <div className="min-w-0">
                           <h3 className="text-xs font-bold text-slate-900 leading-snug">
-                            {route.company}
+                            {route.name}
                           </h3>
-                          <p className="text-xs text-slate-700 leading-snug mt-0.5">
-                            {route.description}
+                          <p className="text-[11px] font-medium text-slate-600 leading-snug">
+                            {route.company} · {route.description}
                           </p>
                           <p className="text-[11px] text-slate-500 font-mono mt-1 truncate">
                             {route.corridor}
@@ -1233,7 +1491,7 @@ export function PassengerRoutesScreen({
                           {formatCOP(route.fareCop)}
                         </span>
                         <p className="text-[10px] text-emerald-700 font-semibold tabular-nums">
-                          c/{route.etaMinutes} min
+                          {route.returnPath.length >= 2 ? 'Ida + Vuelta' : 'Trazado AMBQ'}
                         </p>
                       </div>
                     </div>
@@ -1241,7 +1499,13 @@ export function PassengerRoutesScreen({
                     <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between gap-2 text-xs">
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800">
                         <MapPin className="w-3.5 h-3.5" />
-                        <span>{isSelected ? 'Trazada en mapa' : 'Ver recorrido'}</span>
+                        <span className="group-hover:underline">
+                          {isSelected
+                            ? route.returnPath.length >= 2
+                              ? 'Trazada en mapa (Ida/Vuelta)'
+                              : 'Trazada en mapa (AMBQ)'
+                            : 'Ver trazado en mapa'}
+                        </span>
                       </span>
 
                       <button
