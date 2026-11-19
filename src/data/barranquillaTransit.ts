@@ -11,7 +11,6 @@ import type {
 } from '../types/transit';
 
 export const NATIVE_DEVICE_BY_SCREEN: Record<ScreenId, 'movil' | 'tablet' | 'desktop'> = {
-  mapa: 'movil',
   rutas: 'movil',
   billetera: 'movil',
   conductor: 'tablet',

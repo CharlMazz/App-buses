@@ -412,7 +412,7 @@ export function DriverCockpitScreen({
                 <span>Cambiar Vista:</span>
                 <button
                   type="button"
-                  onClick={() => onNavigate('mapa')}
+                  onClick={() => onNavigate('rutas')}
                   className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 underline decoration-teal-400"
                 >
                   Pasajero

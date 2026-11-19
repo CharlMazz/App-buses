@@ -1,49 +1,377 @@
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
   ArrowRight,
+  ArrowUpDown,
   Bus,
-  CheckCircle2,
-  Compass,
+  ChevronDown,
+  Loader2,
+  LocateFixed,
+  MapPin,
   Monitor,
   Plus,
-  QrCode,
   Route,
+  Search,
+  Store,
   User,
-  Users,
   Wallet,
   X,
 } from 'lucide-react';
-import {formatCOP} from '../data/barranquillaTransit';
-import type {ScreenId} from '../types/transit';
+import {
+  BARRANQUILLA_PASSENGER_CENTER,
+  TRANSIT_STATIONS,
+  USER_GPS_POSITION,
+  formatCOP,
+  getDistanceMeters,
+} from '../data/barranquillaTransit';
+import {useAutocompleteSuggestions} from '../hooks/useAutocompleteSuggestions';
+import type {LatLng, PlacePoint, ScreenId, TripPlannerState} from '../types/transit';
+
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
 
 interface PassengerBottomNavProps {
-  currentScreen: 'mapa' | 'rutas' | 'billetera';
+  currentScreen: 'rutas' | 'billetera';
   balance: number;
+  tripPlanner: TripPlannerState;
   onNavigate: (screen: ScreenId) => void;
-  onCurrentMapAction?: () => void;
-  onCurrentWalletAction?: () => void;
+  onDestinationCleared?: () => void;
+  externalOpenNonce?: number;
   positionClass?: string;
 }
 
 export function PassengerBottomNav({
   currentScreen,
   balance,
+  tripPlanner,
   onNavigate,
-  onCurrentMapAction,
-  onCurrentWalletAction,
+  onDestinationCleared,
+  externalOpenNonce = 0,
   positionClass = 'relative shrink-0',
 }: PassengerBottomNavProps) {
+  const placesLib = useMapsLibrary('places');
+  const searchCardRef = useRef<HTMLDivElement | null>(null);
+  const destInputRef = useRef<HTMLInputElement | null>(null);
+
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [fabMenuOpen, setFabMenuOpen] = useState(false);
-  const [showRolesModal, setShowRolesModal] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeField, setActiveField] = useState<'origin' | 'destination' | null>(null);
+  const [isResolvingPlace, setIsResolvingPlace] = useState(false);
+  const [isLocatingUser, setIsLocatingUser] = useState(false);
+
   const tripsCount = Math.floor(balance / 3100);
+
+  const {
+    originQuery,
+    originMarker,
+    destQuery,
+    selectedDestination,
+    userPosition,
+    setOriginQuery,
+    setOriginMarker,
+    setDestQuery,
+    setSelectedDestination,
+    onUpdateUserPosition,
+    onFocusMap,
+    onToast,
+  } = tripPlanner;
+
+  useEffect(() => {
+    if (externalOpenNonce > 0) {
+      setSearchOpen(true);
+      setActiveField('destination');
+      window.setTimeout(() => destInputRef.current?.focus(), 60);
+    }
+  }, [externalOpenNonce]);
+
+  const autocompleteQuery =
+    activeField === 'origin'
+      ? originQuery === 'Mi ubicación actual (GPS)'
+        ? ''
+        : originQuery
+      : activeField === 'destination'
+      ? destQuery
+      : '';
+
+  const {
+    suggestions: placeSuggestions,
+    isLoading: isSuggestionsLoading,
+    error: suggestionsError,
+    resetSession,
+  } = useAutocompleteSuggestions(autocompleteQuery, searchOpen && activeField !== null);
+
+  const matchingStations = useMemo(() => {
+    const q = normalizeText(autocompleteQuery.trim());
+    if (q.length < 2) return [];
+    return TRANSIT_STATIONS.filter(
+      (st) => normalizeText(st.name).includes(q) || normalizeText(st.subtitle).includes(q)
+    );
+  }, [autocompleteQuery]);
+
+  const handleLocateUser = useCallback(() => {
+    setOriginMarker(null);
+    setOriginQuery('Mi ubicación actual (GPS)');
+    setActiveField(null);
+
+    if (!navigator.geolocation) {
+      onUpdateUserPosition(USER_GPS_POSITION);
+      onFocusMap(USER_GPS_POSITION, 16);
+      onToast('Ubicación fijada en Cra 46 con Calle 74 (Barranquilla)');
+      return;
+    }
+
+    setIsLocatingUser(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocatingUser(false);
+        const realPos: LatLng = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        };
+        const distFromBaq = getDistanceMeters(realPos, BARRANQUILLA_PASSENGER_CENTER);
+        if (distFromBaq <= 60000) {
+          onUpdateUserPosition(realPos);
+          onFocusMap(realPos, 16);
+          onToast('Tu ubicación GPS en Barranquilla ha sido actualizada');
+        } else {
+          onUpdateUserPosition(USER_GPS_POSITION);
+          onFocusMap(USER_GPS_POSITION, 16);
+          onToast('GPS ubicado en Barranquilla (Cra 46 con Calle 74) para ver buses locales');
+        }
+      },
+      () => {
+        setIsLocatingUser(false);
+        onUpdateUserPosition(USER_GPS_POSITION);
+        onFocusMap(USER_GPS_POSITION, 16);
+        onToast('Centrado en tu ubicación de Barranquilla (Cra 46 con Cll 74)');
+      },
+      {enableHighAccuracy: true, timeout: 6000}
+    );
+  }, [onFocusMap, onToast, onUpdateUserPosition, setOriginMarker, setOriginQuery]);
+
+  const applyPlacePoint = useCallback(
+    (point: PlacePoint, targetField: 'origin' | 'destination') => {
+      if (targetField === 'origin') {
+        setOriginMarker(point);
+        setOriginQuery(point.name);
+        onFocusMap(point.position, 15);
+        onToast(`Punto de recogida: ${point.name}`);
+      } else {
+        setSelectedDestination(point);
+        setDestQuery(point.name);
+        onFocusMap(point.position, 15);
+        onToast(`Destino: ${point.name}`);
+      }
+      setActiveField(null);
+      resetSession();
+    },
+    [
+      onFocusMap,
+      onToast,
+      resetSession,
+      setDestQuery,
+      setOriginMarker,
+      setOriginQuery,
+      setSelectedDestination,
+    ]
+  );
+
+  const handleSelectPlaceSuggestion = async (
+    suggestion: google.maps.places.AutocompleteSuggestion
+  ) => {
+    if (!placesLib || !suggestion.placePrediction || !activeField) return;
+    const targetField = activeField;
+    setIsResolvingPlace(true);
+    try {
+      const place = suggestion.placePrediction.toPlace();
+      await place.fetchFields({
+        fields: ['displayName', 'formattedAddress', 'location'],
+      });
+      const loc = place.location;
+      if (loc) {
+        const position = {lat: loc.lat(), lng: loc.lng()};
+        const name =
+          place.displayName ??
+          suggestion.placePrediction.mainText?.text ??
+          suggestion.placePrediction.text.text;
+        const address =
+          place.formattedAddress ??
+          suggestion.placePrediction.secondaryText?.text ??
+          'Barranquilla, Atlántico';
+        applyPlacePoint({name, address, position}, targetField);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('OVER_QUERY_LIMIT')) {
+        window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+      }
+      onToast('No se pudo obtener la ubicación de ese lugar');
+    } finally {
+      setIsResolvingPlace(false);
+    }
+  };
+
+  const handleSwapOriginDestination = () => {
+    const prevOriginPoint: PlacePoint = originMarker ?? {
+      name: 'Mi ubicación actual (GPS)',
+      address: 'Cra 46 con Calle 74 · Barranquilla',
+      position: userPosition,
+    };
+    const prevDestPoint = selectedDestination;
+
+    if (prevDestPoint) {
+      setOriginMarker(prevDestPoint);
+      setOriginQuery(prevDestPoint.name);
+    } else {
+      setOriginMarker(null);
+      setOriginQuery('Mi ubicación actual (GPS)');
+    }
+
+    setSelectedDestination(prevOriginPoint);
+    setDestQuery(prevOriginPoint.name);
+    onToast('Lugar de recogida y destino intercambiados');
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setActiveField(null);
+  };
+
+  const resolveTextToPlace = useCallback(
+    async (queryText: string): Promise<PlacePoint | null> => {
+      const q = normalizeText(queryText.trim());
+      if (q.length < 2) return null;
+
+      const stationMatch = TRANSIT_STATIONS.find(
+        (st) => normalizeText(st.name).includes(q) || normalizeText(st.subtitle).includes(q)
+      );
+      if (stationMatch) {
+        return {
+          name: stationMatch.name,
+          address: stationMatch.subtitle,
+          position: stationMatch.position,
+        };
+      }
+
+      if (!placesLib) return null;
+      try {
+        const res = await placesLib.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+          input: queryText.trim(),
+          includedRegionCodes: ['co'],
+          language: 'es',
+          locationBias: {
+            center: BARRANQUILLA_PASSENGER_CENTER,
+            radius: 25000,
+          },
+        });
+        const firstPred = res.suggestions?.[0]?.placePrediction;
+        if (!firstPred) return null;
+        const place = firstPred.toPlace();
+        await place.fetchFields({
+          fields: ['displayName', 'formattedAddress', 'location'],
+        });
+        const loc = place.location;
+        if (!loc) return null;
+        return {
+          name: place.displayName ?? firstPred.mainText?.text ?? firstPred.text.text,
+          address:
+            place.formattedAddress ?? firstPred.secondaryText?.text ?? 'Barranquilla, Atlántico',
+          position: {lat: loc.lat(), lng: loc.lng()},
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('OVER_QUERY_LIMIT') ||
+          msg.includes('Quota')
+        ) {
+          window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+        }
+        return null;
+      }
+    },
+    [placesLib]
+  );
+
+  const handleSearchSubmit = async () => {
+    if (isResolvingPlace) return;
+
+    const trimmedOrigin = originQuery.trim();
+    const trimmedDest = destQuery.trim();
+
+    if (!trimmedDest && !selectedDestination && !originMarker) {
+      onToast('Ingresa tu destino en Barranquilla para buscar');
+      setActiveField('destination');
+      destInputRef.current?.focus();
+      return;
+    }
+
+    let resolvedOrigin = originMarker;
+    let resolvedDest = selectedDestination;
+
+    const needsOriginResolve =
+      !resolvedOrigin &&
+      trimmedOrigin.length >= 2 &&
+      trimmedOrigin !== 'Mi ubicación actual (GPS)';
+    const needsDestResolve = !resolvedDest && trimmedDest.length >= 2;
+
+    if (needsOriginResolve || needsDestResolve) {
+      setIsResolvingPlace(true);
+      try {
+        if (needsOriginResolve) {
+          const pt = await resolveTextToPlace(trimmedOrigin);
+          if (pt) {
+            resolvedOrigin = pt;
+            setOriginMarker(pt);
+            setOriginQuery(pt.name);
+          }
+        }
+        if (needsDestResolve) {
+          const pt = await resolveTextToPlace(trimmedDest);
+          if (pt) {
+            resolvedDest = pt;
+            setSelectedDestination(pt);
+            setDestQuery(pt.name);
+          }
+        }
+      } finally {
+        setIsResolvingPlace(false);
+      }
+    }
+
+    const focusTarget = resolvedDest?.position ?? resolvedOrigin?.position ?? userPosition;
+    onFocusMap(focusTarget, 15);
+    resetSession();
+    closeSearch();
+
+    if (currentScreen !== 'rutas') {
+      onNavigate('rutas');
+    }
+
+    if (resolvedDest) {
+      onToast(`Buscando rutas hacia ${resolvedDest.name}`);
+    } else if (resolvedOrigin) {
+      onToast(`Buscando rutas desde ${resolvedOrigin.name}`);
+    } else {
+      onToast('Mostrando buses cercanos a tu ubicación');
+    }
+  };
+
+  const showDropdown =
+    searchOpen &&
+    activeField !== null &&
+    (activeField === 'origin' || autocompleteQuery.trim().length >= 2);
 
   return (
     <>
-      {fabMenuOpen && (
+      {searchOpen && (
         <div
           aria-hidden="true"
-          onClick={() => setFabMenuOpen(false)}
+          onClick={closeSearch}
           className="absolute inset-0 z-30 bg-slate-900/25 backdrop-blur-[1px]"
         />
       )}
@@ -53,30 +381,259 @@ export function PassengerBottomNav({
         aria-label="Navegación principal"
         className={`${positionClass} z-40 bg-white border-t border-slate-200 px-3 pt-1.5 pb-2.5 shadow-[0_-4px_20px_rgba(15,23,42,0.08)]`}
       >
+        {/* Pickup & Destination Search Overlay anchored above the Bottom Bar */}
+        {searchOpen && (
+          <div
+            ref={searchCardRef}
+            className="absolute left-2.5 right-2.5 bottom-full mb-4 z-50 max-w-lg mx-auto"
+          >
+            {/* Places Autocomplete Dropdown opening upward above the search card */}
+            {showDropdown && (
+              <div
+                role="listbox"
+                aria-label="Sugerencias de lugares"
+                className="mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100"
+              >
+                {activeField === 'origin' && (
+                  <button
+                    type="button"
+                    onClick={handleLocateUser}
+                    className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 bg-teal-50/60 hover:bg-teal-100/70 transition-colors"
+                  >
+                    <LocateFixed className="w-4 h-4 text-[#0D9488] shrink-0" />
+                    <span className="text-xs font-semibold text-[#0D9488]">
+                      Usar mi ubicación actual (GPS)
+                    </span>
+                  </button>
+                )}
+
+                {matchingStations.map((st) => (
+                  <button
+                    key={`st-${st.id}`}
+                    type="button"
+                    onClick={() =>
+                      applyPlacePoint(
+                        {name: st.name, address: st.subtitle, position: st.position},
+                        activeField
+                      )
+                    }
+                    className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-teal-50/70 transition-colors"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0 mt-0.5">
+                      <Store className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-900 truncate">{st.name}</p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        Estación TransMetro · {st.subtitle}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+
+                {(isSuggestionsLoading || isResolvingPlace) && (
+                  <div className="px-3.5 py-3 flex items-center gap-2 text-xs text-slate-500">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
+                    <span>Buscando en Barranquilla...</span>
+                  </div>
+                )}
+
+                {!isSuggestionsLoading &&
+                  placeSuggestions.map((suggestion, idx) => {
+                    const pred = suggestion.placePrediction;
+                    if (!pred) return null;
+                    const main = pred.mainText?.text ?? pred.text.text;
+                    const secondary = pred.secondaryText?.text ?? '';
+                    return (
+                      <button
+                        key={pred.placeId ?? `place-${idx}`}
+                        type="button"
+                        onClick={() => void handleSelectPlaceSuggestion(suggestion)}
+                        className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
+                          <MapPin className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
+                          {secondary && (
+                            <p className="text-[11px] text-slate-500 truncate">{secondary}</p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                {!isSuggestionsLoading && suggestionsError && matchingStations.length === 0 && (
+                  <div className="px-3.5 py-3 text-xs text-amber-700 bg-amber-50">
+                    {suggestionsError}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Highlighted Pickup & Destination Card */}
+            <div className="bg-white/95 backdrop-blur-sm rounded-[14px] shadow-2xl border border-slate-200 p-2 space-y-1.5">
+              {/* Row 1: Lugar de recogida */}
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1 flex items-center">
+                  <span
+                    aria-hidden="true"
+                    className="w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-200 absolute left-2.5 z-10 pointer-events-none"
+                  />
+                  <input
+                    type="text"
+                    aria-label="Lugar de recogida"
+                    value={originQuery}
+                    onFocus={() => {
+                      setActiveField('origin');
+                      if (originQuery === 'Mi ubicación actual (GPS)') {
+                        setOriginQuery('');
+                      }
+                    }}
+                    onChange={(e) => {
+                      setOriginQuery(e.target.value);
+                      setActiveField('origin');
+                      if (!e.target.value.trim()) {
+                        setOriginMarker(null);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSearchSubmit();
+                      }
+                    }}
+                    placeholder="Lugar de recogida (ej. Cra 46, Prado...)"
+                    className="w-full h-9 pl-7 pr-14 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                  />
+                  <div className="absolute right-1 flex items-center gap-0.5">
+                    {originQuery && originQuery !== 'Mi ubicación actual (GPS)' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOriginMarker(null);
+                          setOriginQuery('Mi ubicación actual (GPS)');
+                        }}
+                        aria-label="Restablecer lugar de recogida a GPS"
+                        className="p-1 text-slate-400 hover:text-slate-700"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleLocateUser}
+                      title="Usar mi ubicación GPS actual"
+                      aria-label="Usar mi ubicación GPS actual"
+                      className="w-6 h-6 rounded bg-white border border-slate-200 text-[#0D9488] hover:bg-teal-50 flex items-center justify-center"
+                    >
+                      {isLocatingUser ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <LocateFixed className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSwapOriginDestination}
+                  aria-label="Intercambiar recogida y destino"
+                  title="Intercambiar recogida y destino"
+                  className="w-9 h-9 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Row 2: Destino */}
+              <div className="flex items-center gap-1">
+                <div className="relative flex-1 flex items-center">
+                  <MapPin
+                    aria-hidden="true"
+                    className="w-3.5 h-3.5 text-[#0D9488] absolute left-2 z-10 pointer-events-none"
+                  />
+                  <input
+                    ref={destInputRef}
+                    type="text"
+                    aria-label="Destino"
+                    value={destQuery}
+                    onFocus={() => setActiveField('destination')}
+                    onChange={(e) => {
+                      setDestQuery(e.target.value);
+                      setActiveField('destination');
+                      if (!e.target.value.trim()) {
+                        setSelectedDestination(null);
+                        onDestinationCleared?.();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSearchSubmit();
+                      }
+                    }}
+                    placeholder="¿Cuál es tu destino en Barranquilla?"
+                    className="w-full h-9 pl-7 pr-7 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs font-medium text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                  />
+                  {destQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDestQuery('');
+                        setSelectedDestination(null);
+                        onDestinationCleared?.();
+                      }}
+                      aria-label="Limpiar destino"
+                      className="p-1 absolute right-1 text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeSearch}
+                  aria-label="Minimizar barra de búsqueda"
+                  title="Minimizar"
+                  className="w-9 h-9 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                disabled={isResolvingPlace}
+                onClick={() => void handleSearchSubmit()}
+                className="w-full h-9 rounded-[8px] bg-[#0D9488] hover:bg-teal-700 disabled:opacity-70 text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-[0.99] cursor-pointer"
+              >
+                {isResolvingPlace ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Buscando ruta...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Buscar ruta</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
         <ul className="flex items-center justify-between max-w-lg mx-auto gap-1">
           <li className="flex-1 flex justify-center">
             <button
               type="button"
               onClick={() => {
-                setFabMenuOpen(false);
-                if (currentScreen !== 'mapa') onNavigate('mapa');
-              }}
-              aria-current={currentScreen === 'mapa' ? 'page' : undefined}
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 ${
-                currentScreen === 'mapa'
-                  ? 'text-[#0D9488] font-medium'
-                  : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Compass className="w-5 h-5" />
-              <span className="text-[11px]">Explorar</span>
-            </button>
-          </li>
-          <li className="flex-1 flex justify-center">
-            <button
-              type="button"
-              onClick={() => {
-                setFabMenuOpen(false);
+                closeSearch();
                 if (currentScreen !== 'rutas') onNavigate('rutas');
               }}
               aria-current={currentScreen === 'rutas' ? 'page' : undefined}
@@ -94,7 +651,7 @@ export function PassengerBottomNav({
             <button
               type="button"
               onClick={() => {
-                setFabMenuOpen(false);
+                closeSearch();
                 if (currentScreen !== 'billetera') onNavigate('billetera');
               }}
               aria-current={currentScreen === 'billetera' ? 'page' : undefined}
@@ -112,7 +669,7 @@ export function PassengerBottomNav({
             <button
               type="button"
               onClick={() => {
-                setFabMenuOpen(false);
+                closeSearch();
                 setShowProfileModal(true);
               }}
               className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-2"
@@ -122,231 +679,39 @@ export function PassengerBottomNav({
             </button>
           </li>
           <li className="relative shrink-0 pl-1 flex items-center justify-end">
-            {fabMenuOpen && (
-              <ul className="absolute right-0 bottom-full mb-5 flex flex-col items-end gap-2">
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      setShowRolesModal(true);
-                    }}
-                    className="flex items-center gap-2.5 group whitespace-nowrap"
-                  >
-                    <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                      Roles
-                    </span>
-                    <span className="w-11 h-11 rounded-full bg-white text-slate-700 group-hover:text-[#0D9488] shadow-lg border border-slate-200 flex items-center justify-center transition-colors">
-                      <Users className="w-5 h-5" />
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      if (currentScreen === 'billetera') {
-                        onCurrentWalletAction?.();
-                      } else {
-                        onNavigate('billetera');
-                      }
-                    }}
-                    className="flex items-center gap-2.5 group whitespace-nowrap"
-                  >
-                    <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                      Billetera ({formatCOP(balance)})
-                      {currentScreen === 'billetera' ? ' (Actual)' : ''}
-                    </span>
-                    <span
-                      className={`w-11 h-11 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center transition-colors ${
-                        currentScreen === 'billetera'
-                          ? 'text-[#0D9488]'
-                          : 'text-slate-700 group-hover:text-[#0D9488]'
-                      }`}
-                    >
-                      <Wallet className="w-5 h-5" />
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      if (currentScreen !== 'rutas') onNavigate('rutas');
-                    }}
-                    className="flex items-center gap-2.5 group whitespace-nowrap"
-                  >
-                    <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                      Rutas{currentScreen === 'rutas' ? ' (Actual)' : ''}
-                    </span>
-                    <span
-                      className={`w-11 h-11 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center transition-colors ${
-                        currentScreen === 'rutas'
-                          ? 'text-[#0D9488]'
-                          : 'text-slate-700 group-hover:text-[#0D9488]'
-                      }`}
-                    >
-                      <Route className="w-5 h-5" />
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      if (currentScreen === 'mapa') {
-                        onCurrentMapAction?.();
-                      } else {
-                        onNavigate('mapa');
-                      }
-                    }}
-                    className="flex items-center gap-2.5 group whitespace-nowrap"
-                  >
-                    <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                      Explorar mapa{currentScreen === 'mapa' ? ' (Actual)' : ''}
-                    </span>
-                    <span
-                      className={`w-11 h-11 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center transition-colors ${
-                        currentScreen === 'mapa'
-                          ? 'text-[#0D9488]'
-                          : 'text-slate-700 group-hover:text-[#0D9488]'
-                      }`}
-                    >
-                      <Compass className="w-5 h-5" />
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFabMenuOpen(false);
-                      if (currentScreen === 'billetera') {
-                        onCurrentWalletAction?.();
-                      } else {
-                        onNavigate('billetera');
-                      }
-                    }}
-                    className="flex items-center gap-2.5 group whitespace-nowrap"
-                  >
-                    <span className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-lg">
-                      Ticket QR
-                    </span>
-                    <span className="w-11 h-11 rounded-full bg-[#0D9488] text-white shadow-lg border-2 border-white flex items-center justify-center">
-                      <QrCode className="w-5 h-5" />
-                    </span>
-                  </button>
-                </li>
-              </ul>
-            )}
-
             <button
               type="button"
-              onClick={() => setFabMenuOpen((open) => !open)}
-              aria-expanded={fabMenuOpen}
-              aria-label={fabMenuOpen ? 'Cerrar menú rápido' : 'Abrir menú de acciones'}
+              onClick={() => {
+                setSearchOpen((open) => {
+                  const next = !open;
+                  if (next) {
+                    setActiveField('destination');
+                    window.setTimeout(() => destInputRef.current?.focus(), 60);
+                  } else {
+                    setActiveField(null);
+                  }
+                  return next;
+                });
+              }}
+              aria-expanded={searchOpen}
+              aria-label={
+                searchOpen
+                  ? 'Cerrar búsqueda de recogida y destino'
+                  : 'Ingresar lugar de recogida y destino'
+              }
               className={`-mt-6 w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg border-[3px] border-white active:scale-95 transition-all cursor-pointer ${
-                fabMenuOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
+                searchOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
               }`}
             >
               <Plus
                 className={`w-6 h-6 transition-transform duration-200 ${
-                  fabMenuOpen ? 'rotate-45' : ''
+                  searchOpen ? 'rotate-45' : ''
                 }`}
               />
             </button>
           </li>
         </ul>
       </nav>
-
-      {/* Role Switcher Modal */}
-      {showRolesModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-slate-900">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-[#0D9488]" />
-                <h3 className="font-headline text-base font-bold text-slate-900">
-                  Ecosistema APP BUSES
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowRolesModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500">
-              Selecciona el rol de la plataforma para validar el recorrido completo:
-            </p>
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => setShowRolesModal(false)}
-                className="w-full text-left p-3 rounded-lg border-2 border-[#0D9488] bg-teal-50/50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-[#0D9488]" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">App Pasajero (Actual)</p>
-                    <p className="text-[11px] text-slate-500">
-                      Explorar Mapa, Rutas y Billetera Digital
-                    </p>
-                  </div>
-                </div>
-                <CheckCircle2 className="w-5 h-5 text-[#0D9488]" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRolesModal(false);
-                  onNavigate('conductor');
-                }}
-                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Bus className="w-5 h-5 text-[#2563EB]" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">App Conductor (Tableta)</p>
-                    <p className="text-[11px] text-slate-500">
-                      Navegación, Validador QR y Conteo APC
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRolesModal(false);
-                  onNavigate('operador');
-                }}
-                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Monitor className="w-5 h-5 text-amber-500" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">
-                      Centro de Control (Operador Web)
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Telemetría de Flota, Recaudo e Incidencias
-                    </p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Passenger Profile & Roles Modal */}
       {showProfileModal && (
@@ -387,24 +752,6 @@ export function PassengerBottomNav({
                 type="button"
                 onClick={() => {
                   setShowProfileModal(false);
-                  if (currentScreen !== 'mapa') onNavigate('mapa');
-                }}
-                className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Compass className="w-5 h-5 text-[#0D9488]" />
-                  <div>
-                    <p className="font-semibold text-slate-900 text-sm">Explorar Mapa en Vivo</p>
-                    <p className="text-[11px] text-slate-500">Partida, destino y buses cercanos</p>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowProfileModal(false);
                   if (currentScreen !== 'rutas') onNavigate('rutas');
                 }}
                 className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-slate-800 hover:bg-slate-50 flex items-center justify-between transition-colors"
@@ -412,8 +759,10 @@ export function PassengerBottomNav({
                 <div className="flex items-center gap-3">
                   <Route className="w-5 h-5 text-[#0D9488]" />
                   <div>
-                    <p className="font-semibold text-slate-900 text-sm">Buscador de Rutas BAQ</p>
-                    <p className="text-[11px] text-slate-500">Consultar rutas por zona del mapa</p>
+                    <p className="font-semibold text-slate-900 text-sm">Mapa y Rutas BAQ</p>
+                    <p className="text-[11px] text-slate-500">
+                      Buses en vivo, recogida, destino y rutas
+                    </p>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400" />

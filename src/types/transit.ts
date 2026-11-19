@@ -1,4 +1,4 @@
-export type ScreenId = 'mapa' | 'rutas' | 'billetera' | 'conductor' | 'operador';
+export type ScreenId = 'rutas' | 'billetera' | 'conductor' | 'operador';
 
 export type DeviceMode = 'movil' | 'tablet' | 'desktop';
 
@@ -16,6 +16,27 @@ export interface MapBounds {
   south: number;
   east: number;
   west: number;
+}
+
+export interface PlacePoint {
+  name: string;
+  address: string;
+  position: LatLng;
+}
+
+export interface TripPlannerState {
+  originQuery: string;
+  originMarker: PlacePoint | null;
+  destQuery: string;
+  selectedDestination: PlacePoint | null;
+  userPosition: LatLng;
+  setOriginQuery: (value: string) => void;
+  setOriginMarker: (point: PlacePoint | null) => void;
+  setDestQuery: (value: string) => void;
+  setSelectedDestination: (point: PlacePoint | null) => void;
+  onUpdateUserPosition: (pos: LatLng) => void;
+  onFocusMap: (pos: LatLng, zoom?: number) => void;
+  onToast: (msg: string) => void;
 }
 
 export interface TransitStation {

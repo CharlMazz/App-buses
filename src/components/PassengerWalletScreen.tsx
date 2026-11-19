@@ -13,12 +13,13 @@ import {
   X,
 } from 'lucide-react';
 import {formatCOP} from '../data/barranquillaTransit';
-import type {ScreenId, WalletTransaction} from '../types/transit';
+import type {ScreenId, TripPlannerState, WalletTransaction} from '../types/transit';
 import {PassengerBottomNav} from './PassengerBottomNav';
 
 interface PassengerWalletScreenProps {
   balance: number;
   transactions: WalletTransaction[];
+  tripPlanner: TripPlannerState;
   onTopUp: (amount: number, methodLabel: string) => void;
   onNavigate: (screen: ScreenId) => void;
 }
@@ -65,6 +66,7 @@ const QR_DATA_CELLS: Array<{x: number; y: number; w: number; h: number; accent?:
 export function PassengerWalletScreen({
   balance,
   transactions,
+  tripPlanner,
   onTopUp,
   onNavigate,
 }: PassengerWalletScreenProps) {
@@ -140,8 +142,8 @@ export function PassengerWalletScreen({
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
-            onClick={() => onNavigate('mapa')}
-            aria-label="Volver al mapa"
+            onClick={() => onNavigate('rutas')}
+            aria-label="Volver a rutas"
             className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -491,8 +493,8 @@ export function PassengerWalletScreen({
       <PassengerBottomNav
         currentScreen="billetera"
         balance={balance}
+        tripPlanner={tripPlanner}
         onNavigate={onNavigate}
-        onCurrentWalletAction={handleRefreshQr}
         positionClass="absolute bottom-0 left-0 right-0"
       />
 

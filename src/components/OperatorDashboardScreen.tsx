@@ -232,7 +232,7 @@ export function OperatorDashboardScreen({
             <span>Vistas:</span>
             <button
               type="button"
-              onClick={() => onNavigate('mapa')}
+              onClick={() => onNavigate('rutas')}
               className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-teal-300 border border-slate-800"
             >
               Pasajero
@@ -265,7 +265,7 @@ export function OperatorDashboardScreen({
           <div className="flex items-center gap-2.5 flex-wrap">
             <button
               type="button"
-              onClick={() => onNavigate('mapa')}
+              onClick={() => onNavigate('rutas')}
               className="md:hidden px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-semibold"
             >
               Volver a Pasajero

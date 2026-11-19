@@ -2,7 +2,6 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {APIProvider} from '@vis.gl/react-google-maps';
 import {DriverCockpitScreen} from './components/DriverCockpitScreen';
 import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
-import {PassengerMapScreen} from './components/PassengerMapScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
 import {
@@ -11,29 +10,24 @@ import {
   NATIVE_DEVICE_BY_SCREEN,
   USER_GPS_POSITION,
 } from './data/barranquillaTransit';
-import type {CompanyRouteItem} from './data/busRoutesCatalog';
 import type {
   DeviceMode,
   LatLng,
   OperationalIncident,
+  PlacePoint,
   ScreenId,
+  TripPlannerState,
   WalletTransaction,
 } from './types/transit';
 
 const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
 function getInitialScreen(): ScreenId {
-  const raw = window.location.hash.replace('#', '') as ScreenId;
-  if (
-    raw === 'mapa' ||
-    raw === 'rutas' ||
-    raw === 'billetera' ||
-    raw === 'conductor' ||
-    raw === 'operador'
-  ) {
+  const raw = window.location.hash.replace('#', '');
+  if (raw === 'rutas' || raw === 'billetera' || raw === 'conductor' || raw === 'operador') {
     return raw;
   }
-  return 'mapa';
+  return 'rutas';
 }
 
 export default function App() {
@@ -50,7 +44,15 @@ export default function App() {
     null
   );
   const [userPosition, setUserPosition] = useState<LatLng>(USER_GPS_POSITION);
-  const [exploreRoute, setExploreRoute] = useState<CompanyRouteItem | null>(null);
+  const [originQuery, setOriginQuery] = useState('Mi ubicación actual (GPS)');
+  const [originMarker, setOriginMarker] = useState<PlacePoint | null>(null);
+  const [destQuery, setDestQuery] = useState('');
+  const [selectedDestination, setSelectedDestination] = useState<PlacePoint | null>(null);
+  const [pendingMapFocus, setPendingMapFocus] = useState<{
+    position: LatLng;
+    zoom: number;
+    nonce: number;
+  } | null>(null);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -136,6 +138,25 @@ export default function App() {
     setGlobalToast('Comunicado enviado a las consolas de conductores');
   }, []);
 
+  const handleFocusMap = useCallback((position: LatLng, zoom: number = 15) => {
+    setPendingMapFocus({position, zoom, nonce: Date.now()});
+  }, []);
+
+  const tripPlanner: TripPlannerState = {
+    originQuery,
+    originMarker,
+    destQuery,
+    selectedDestination,
+    userPosition,
+    setOriginQuery,
+    setOriginMarker,
+    setDestQuery,
+    setSelectedDestination,
+    onUpdateUserPosition: setUserPosition,
+    onFocusMap: handleFocusMap,
+    onToast: setGlobalToast,
+  };
+
   const frameSizeClass =
     device === 'movil'
       ? 'w-full h-full sm:h-[min(844px,100%)] sm:min-h-[540px] sm:max-w-[390px] sm:my-auto sm:rounded-[20px]'
@@ -173,31 +194,23 @@ export default function App() {
           <div
             className={`${frameSizeClass} overflow-hidden shadow-[0_10px_40px_rgba(15,23,42,0.25)] bg-white transition-all duration-200 shrink-0`}
           >
-            {screen === 'mapa' && (
-              <PassengerMapScreen
-                balance={balance}
-                userPosition={userPosition}
-                initialFocusRoute={exploreRoute}
-                onClearInitialFocusRoute={() => setExploreRoute(null)}
-                onUpdateUserPosition={setUserPosition}
-                onNavigate={navigateTo}
-                onReportIncident={handlePassengerReport}
-              />
-            )}
             {screen === 'rutas' && (
               <PassengerRoutesScreen
                 balance={balance}
+                userPosition={userPosition}
+                tripPlanner={tripPlanner}
+                pendingMapFocus={pendingMapFocus}
+                onClearPendingMapFocus={() => setPendingMapFocus(null)}
+                onUpdateUserPosition={setUserPosition}
                 onNavigate={navigateTo}
-                onExploreRoute={(route) => {
-                  setExploreRoute(route);
-                  navigateTo('mapa');
-                }}
+                onReportIncident={handlePassengerReport}
               />
             )}
             {screen === 'billetera' && (
               <PassengerWalletScreen
                 balance={balance}
                 transactions={transactions}
+                tripPlanner={tripPlanner}
                 onTopUp={handleTopUp}
                 onNavigate={navigateTo}
               />

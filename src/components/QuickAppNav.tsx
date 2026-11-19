@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bus,
   CheckCircle2,
-  Compass,
   Monitor,
   Plus,
   QrCode,
@@ -20,7 +19,6 @@ interface QuickAppNavProps {
   currentScreen: ScreenId;
   balance: number;
   onNavigate: (screen: ScreenId) => void;
-  onCurrentMapAction?: () => void;
   onCurrentRoutesAction?: () => void;
   onCurrentWalletAction?: () => void;
   positionClass?: string;
@@ -30,7 +28,6 @@ export function QuickAppNav({
   currentScreen,
   balance,
   onNavigate,
-  onCurrentMapAction,
   onCurrentRoutesAction,
   onCurrentWalletAction,
   positionClass = 'bottom-4 left-4',
@@ -38,8 +35,7 @@ export function QuickAppNav({
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const [showRolesModal, setShowRolesModal] = useState(false);
 
-  const isPassengerRole =
-    currentScreen === 'mapa' || currentScreen === 'rutas' || currentScreen === 'billetera';
+  const isPassengerRole = currentScreen === 'rutas' || currentScreen === 'billetera';
 
   return (
     <>
@@ -134,33 +130,6 @@ export function QuickAppNav({
                 type="button"
                 onClick={() => {
                   setFabMenuOpen(false);
-                  if (currentScreen === 'mapa') {
-                    onCurrentMapAction?.();
-                  } else {
-                    onNavigate('mapa');
-                  }
-                }}
-                className="flex items-center gap-2.5 group"
-              >
-                <span
-                  className={`w-11 h-11 rounded-full bg-white shadow-lg border border-slate-200 flex items-center justify-center transition-colors ${
-                    currentScreen === 'mapa'
-                      ? 'text-[#0D9488]'
-                      : 'text-slate-700 group-hover:text-[#0D9488]'
-                  }`}
-                >
-                  <Compass className="w-5 h-5" />
-                </span>
-                <span className="px-3 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold shadow-lg border border-slate-200">
-                  Explorar mapa{currentScreen === 'mapa' ? ' (Actual)' : ''}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFabMenuOpen(false);
                   if (currentScreen === 'billetera') {
                     onCurrentWalletAction?.();
                   } else {
@@ -224,7 +193,7 @@ export function QuickAppNav({
                 type="button"
                 onClick={() => {
                   setShowRolesModal(false);
-                  if (!isPassengerRole) onNavigate('mapa');
+                  if (!isPassengerRole) onNavigate('rutas');
                 }}
                 className={`w-full text-left p-3 rounded-lg flex items-center justify-between transition-colors ${
                   isPassengerRole
@@ -239,7 +208,7 @@ export function QuickAppNav({
                       App Pasajero{isPassengerRole ? ' (Actual)' : ''}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      Explorar Mapa, Rutas y Billetera Digital
+                      Mapa en Vivo, Rutas y Billetera Digital
                     </p>
                   </div>
                 </div>

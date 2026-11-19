@@ -317,10 +317,13 @@ interface BarranquillaPassengerMapProps {
     position: LatLng;
   } | null;
   selectedCompanyRoute?: CompanyRouteItem | null;
+  catalogRoutes?: CompanyRouteItem[];
   userRadiusMeters?: number | null;
   nearbyBuses?: NearbyBusMarker[];
   signal: MapControlSignal | null;
-  onCameraSync: (zoom: number, isAtDefault: boolean) => void;
+  onCameraSync?: (zoom: number, isAtDefault: boolean) => void;
+  onBoundsChanged?: (bounds: MapBounds) => void;
+  onSelectCatalogRoute?: (route: CompanyRouteItem) => void;
   onSelectStation: (station: TransitStation) => void;
   onSelectBus: (routeCode: string) => void;
   onSelectNearbyBus?: (bus: NearbyBusMarker) => void;
@@ -336,10 +339,13 @@ export function BarranquillaPassengerMap({
   originMarker,
   selectedDestination,
   selectedCompanyRoute,
+  catalogRoutes = [],
   userRadiusMeters,
   nearbyBuses = [],
   signal,
   onCameraSync,
+  onBoundsChanged,
+  onSelectCatalogRoute,
   onSelectStation,
   onSelectBus,
   onSelectNearbyBus,
@@ -381,11 +387,17 @@ export function BarranquillaPassengerMap({
           defaultZoom={15}
           onCameraSync={onCameraSync}
         />
+        <RoutesBoundsWatcher onBoundsChanged={onBoundsChanged} />
         <TransitCorridorsOverlay
           visible={showCorridors}
           routeFilter={routeFilter}
           showTraffic={showTrafficLayer}
-          dimmed={Boolean(selectedCompanyRoute)}
+          dimmed={Boolean(selectedCompanyRoute) || catalogRoutes.length > 0}
+        />
+        <RoutesCatalogPolylines
+          routes={catalogRoutes}
+          selectedRouteId={selectedCompanyRoute?.id ?? null}
+          onSelectRoute={(route) => onSelectCatalogRoute?.(route)}
         />
         <RadiusCircleOverlay center={activeOrigin} radiusMeters={userRadiusMeters} />
         <TripConnectionOverlay origin={activeOrigin} destination={selectedDestination?.position} />
@@ -641,107 +653,7 @@ function RoutesCatalogPolylines({
   return null;
 }
 
-interface BarranquillaRoutesMapProps {
-  routes: CompanyRouteItem[];
-  selectedRoute: CompanyRouteItem | null;
-  signal: MapControlSignal | null;
-  onBoundsChanged?: (bounds: MapBounds) => void;
-  onSelectRoute: (route: CompanyRouteItem) => void;
-  onCameraSync?: (zoom: number, isAtDefault: boolean) => void;
-}
 
-const ROUTES_DEFAULT_CENTER: LatLng = {lat: 10.978, lng: -74.803};
-
-export function BarranquillaRoutesMap({
-  routes,
-  selectedRoute,
-  signal,
-  onBoundsChanged,
-  onSelectRoute,
-  onCameraSync,
-}: BarranquillaRoutesMapProps) {
-  const isDraggingRef = useRef(false);
-  const markerRoutes = selectedRoute ? [] : routes.slice(0, 12);
-
-  return (
-    <div className="absolute inset-0 w-full h-full">
-      <MapStatusOverlay theme="light" />
-      <GoogleMap
-        id="baq-routes-map"
-        mapId={DEMO_MAP_ID}
-        colorScheme="LIGHT"
-        defaultCenter={ROUTES_DEFAULT_CENTER}
-        defaultZoom={13}
-        minZoom={11}
-        maxZoom={18}
-        gestureHandling="greedy"
-        disableDefaultUI={true}
-        internalUsageAttributionIds={ATTRIBUTION_IDS}
-        onDragstart={() => {
-          isDraggingRef.current = true;
-        }}
-        onIdle={() => {
-          setTimeout(() => {
-            isDraggingRef.current = false;
-          }, 80);
-        }}
-        style={{width: '100%', height: '100%'}}
-      >
-        <CameraController
-          signal={signal}
-          defaultCenter={ROUTES_DEFAULT_CENTER}
-          defaultZoom={13}
-          onCameraSync={onCameraSync}
-        />
-        <RoutesBoundsWatcher onBoundsChanged={onBoundsChanged} />
-        <RoutesCatalogPolylines
-          routes={routes}
-          selectedRouteId={selectedRoute?.id ?? null}
-          onSelectRoute={onSelectRoute}
-        />
-        <SelectedRouteOverlay route={selectedRoute} />
-
-        {markerRoutes.map((route) => (
-          <AdvancedMarker
-            key={`rm-${route.id}`}
-            position={route.center}
-            zIndex={20}
-            onClick={() => {
-              if (!isDraggingRef.current) onSelectRoute(route);
-            }}
-            title={`${route.code} · ${route.company}`}
-          >
-            <button
-              type="button"
-              className="px-1.5 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 border border-slate-300 shadow-sm text-[10px] font-headline font-bold flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <Bus className="w-3 h-3 text-[#0D9488] shrink-0" />
-              <span>{route.code}</span>
-            </button>
-          </AdvancedMarker>
-        ))}
-
-        {selectedRoute && (
-          <AdvancedMarker
-            position={selectedRoute.center}
-            zIndex={75}
-            title={`${selectedRoute.company} · Ruta ${selectedRoute.code}`}
-          >
-            <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
-              <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-              <span className="font-headline text-xs font-bold whitespace-nowrap">
-                {selectedRoute.code}
-              </span>
-              <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
-                · {selectedRoute.company}
-              </span>
-            </div>
-          </AdvancedMarker>
-        )}
-      </GoogleMap>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /*  Fleet Map (Screen: Operador)                                      */
