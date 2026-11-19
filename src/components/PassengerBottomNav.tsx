@@ -29,6 +29,7 @@ import {
   useAutocompleteSuggestions,
 } from '../hooks/useAutocompleteSuggestions';
 import type {LatLng, PlacePoint, ScreenId, TripPlannerState} from '../types/transit';
+import {PWAInstallButton} from './PWAInstallButton';
 
 function normalizeText(value: string): string {
   return value
@@ -815,6 +816,12 @@ export function PassengerBottomNav({
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400" />
               </button>
+
+              <PWAInstallButton
+                variant="card"
+                showFallbackHint
+                onAfterAction={() => setShowProfileModal(false)}
+              />
             </div>
           </div>
         </div>

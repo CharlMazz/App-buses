@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {formatCOP} from '../data/barranquillaTransit';
 import type {ScreenId} from '../types/transit';
+import {PWAInstallButton} from './PWAInstallButton';
 
 interface QuickAppNavProps {
   currentScreen: ScreenId;
@@ -279,6 +280,12 @@ export function QuickAppNav({
                   <ArrowRight className="w-4 h-4 text-slate-400" />
                 )}
               </button>
+
+              <PWAInstallButton
+                variant="card"
+                showFallbackHint
+                onAfterAction={() => setShowRolesModal(false)}
+              />
             </div>
           </div>
         </div>

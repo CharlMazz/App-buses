@@ -51,6 +51,7 @@ import {
   type NearbyBusMarker,
 } from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
+import {PWAInstallButton} from './PWAInstallButton';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-sky-600',
@@ -781,6 +782,13 @@ export function PassengerRoutesScreen({
             applyDestinationFromPlaces(place);
           }}
         />
+
+        {/* Compact Floating PWA Install Prompt (auto-hidden when installed or unsupported) */}
+        {!(originMarker || selectedDestination) && (
+          <div className="absolute top-2.5 left-2.5 z-20 pointer-events-auto">
+            <PWAInstallButton variant="compact" />
+          </div>
+        )}
 
         {/* Compact Active Trip Summary Pill (visible when pickup/destination chosen via + or search) */}
         {(originMarker || selectedDestination) && (

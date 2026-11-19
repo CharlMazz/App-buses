@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {APIProvider} from '@vis.gl/react-google-maps';
 import {DriverCockpitScreen} from './components/DriverCockpitScreen';
+import {OfflineIndicator} from './components/OfflineIndicator';
 import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
@@ -165,6 +166,7 @@ export default function App() {
       region="CO"
     >
       <div className="h-full w-full flex flex-col bg-[#E8ECEF] overflow-hidden">
+        <OfflineIndicator />
         {quotaExceeded && (
           <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
             <span>
