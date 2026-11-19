@@ -18,7 +18,15 @@ import {
   USER_GPS_POSITION,
 } from '../data/barranquillaTransit';
 import type {CompanyRouteItem} from '../data/busRoutesCatalog';
-import type {FleetBus, LatLng, MapBounds, RouteFilter, TransitStation} from '../types/transit';
+import {fetchPlaceDetailsById} from '../hooks/useAutocompleteSuggestions';
+import type {
+  FleetBus,
+  LatLng,
+  MapBounds,
+  PlacePoint,
+  RouteFilter,
+  TransitStation,
+} from '../types/transit';
 
 const ATTRIBUTION_IDS = ['gmp_mcp_codeassist_v1_aistudio'];
 const DEMO_MAP_ID = 'DEMO_MAP_ID';
@@ -202,8 +210,9 @@ function TripConnectionOverlay({
 }
 
 export interface MapControlSignal {
-  type: 'zoomIn' | 'zoomOut' | 'reset' | 'centerUser' | 'focus';
+  type: 'zoomIn' | 'zoomOut' | 'reset' | 'centerUser' | 'focus' | 'fitBounds';
   target?: LatLng;
+  boundsPoints?: LatLng[];
   zoom?: number;
   nonce: number;
 }
@@ -220,6 +229,7 @@ function CameraController({
   onCameraSync?: (zoom: number, isAtDefault: boolean) => void;
 }) {
   const map = useMap();
+  const coreLib = useMapsLibrary('core');
 
   useEffect(() => {
     if (!map || !onCameraSync) return;
@@ -258,8 +268,19 @@ function CameraController({
     } else if (signal.type === 'focus' && signal.target) {
       map.panTo(signal.target);
       if (signal.zoom) map.setZoom(signal.zoom);
+    } else if (signal.type === 'fitBounds' && signal.boundsPoints && signal.boundsPoints.length > 0) {
+      if (signal.boundsPoints.length === 1 || !coreLib) {
+        map.panTo(signal.boundsPoints[0]);
+        map.setZoom(signal.zoom ?? 15);
+      } else {
+        const bounds = new coreLib.LatLngBounds();
+        for (const pt of signal.boundsPoints) {
+          bounds.extend(pt);
+        }
+        map.fitBounds(bounds, {top: 90, right: 56, bottom: 260, left: 32});
+      }
     }
-  }, [map, signal, defaultCenter, defaultZoom]);
+  }, [map, coreLib, signal, defaultCenter, defaultZoom]);
 
   return null;
 }
@@ -327,6 +348,7 @@ interface BarranquillaPassengerMapProps {
   onSelectStation: (station: TransitStation) => void;
   onSelectBus: (routeCode: string) => void;
   onSelectNearbyBus?: (bus: NearbyBusMarker) => void;
+  onSelectMapPoi?: (place: PlacePoint) => void;
 }
 
 export function BarranquillaPassengerMap({
@@ -349,8 +371,10 @@ export function BarranquillaPassengerMap({
   onSelectStation,
   onSelectBus,
   onSelectNearbyBus,
+  onSelectMapPoi,
 }: BarranquillaPassengerMapProps) {
   const isDraggingRef = useRef(false);
+  const placesLib = useMapsLibrary('places');
 
   const showT01 = routeFilter === 'all' || routeFilter === 'troncal';
   const showA12 = routeFilter === 'all' || routeFilter === 'alimentador';
@@ -378,6 +402,14 @@ export function BarranquillaPassengerMap({
           setTimeout(() => {
             isDraggingRef.current = false;
           }, 80);
+        }}
+        onClick={(e) => {
+          const placeId = e.detail.placeId;
+          if (!placeId || !placesLib || !onSelectMapPoi) return;
+          e.stop();
+          void fetchPlaceDetailsById(placesLib, placeId).then((place) => {
+            if (place) onSelectMapPoi(place);
+          });
         }}
         style={{width: '100%', height: '100%'}}
       >

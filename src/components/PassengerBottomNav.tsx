@@ -24,7 +24,10 @@ import {
   formatCOP,
   getDistanceMeters,
 } from '../data/barranquillaTransit';
-import {useAutocompleteSuggestions} from '../hooks/useAutocompleteSuggestions';
+import {
+  resolvePlaceFromText,
+  useAutocompleteSuggestions,
+} from '../hooks/useAutocompleteSuggestions';
 import type {LatLng, PlacePoint, ScreenId, TripPlannerState} from '../types/transit';
 
 function normalizeText(value: string): string {
@@ -41,6 +44,9 @@ interface PassengerBottomNavProps {
   onNavigate: (screen: ScreenId) => void;
   onDestinationCleared?: () => void;
   externalOpenNonce?: number;
+  routesSearchOpen?: boolean;
+  onToggleRoutesSearch?: () => void;
+  onCloseRoutesSearch?: () => void;
   positionClass?: string;
 }
 
@@ -51,6 +57,9 @@ export function PassengerBottomNav({
   onNavigate,
   onDestinationCleared,
   externalOpenNonce = 0,
+  routesSearchOpen = false,
+  onToggleRoutesSearch,
+  onCloseRoutesSearch,
   positionClass = 'relative shrink-0',
 }: PassengerBottomNavProps) {
   const placesLib = useMapsLibrary('places');
@@ -77,6 +86,7 @@ export function PassengerBottomNav({
     setSelectedDestination,
     onUpdateUserPosition,
     onFocusMap,
+    onTripSubmitted,
     onToast,
   } = tripPlanner;
 
@@ -102,7 +112,11 @@ export function PassengerBottomNav({
     isLoading: isSuggestionsLoading,
     error: suggestionsError,
     resetSession,
-  } = useAutocompleteSuggestions(autocompleteQuery, searchOpen && activeField !== null);
+  } = useAutocompleteSuggestions(
+    autocompleteQuery,
+    searchOpen && activeField !== null,
+    originMarker?.position ?? userPosition
+  );
 
   const matchingStations = useMemo(() => {
     const q = normalizeText(autocompleteQuery.trim());
@@ -258,43 +272,9 @@ export function PassengerBottomNav({
       }
 
       if (!placesLib) return null;
-      try {
-        const res = await placesLib.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-          input: queryText.trim(),
-          includedRegionCodes: ['co'],
-          language: 'es',
-          locationBias: {
-            center: BARRANQUILLA_PASSENGER_CENTER,
-            radius: 25000,
-          },
-        });
-        const firstPred = res.suggestions?.[0]?.placePrediction;
-        if (!firstPred) return null;
-        const place = firstPred.toPlace();
-        await place.fetchFields({
-          fields: ['displayName', 'formattedAddress', 'location'],
-        });
-        const loc = place.location;
-        if (!loc) return null;
-        return {
-          name: place.displayName ?? firstPred.mainText?.text ?? firstPred.text.text,
-          address:
-            place.formattedAddress ?? firstPred.secondaryText?.text ?? 'Barranquilla, Atlántico',
-          position: {lat: loc.lat(), lng: loc.lng()},
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes('RESOURCE_EXHAUSTED') ||
-          msg.includes('OVER_QUERY_LIMIT') ||
-          msg.includes('Quota')
-        ) {
-          window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-        }
-        return null;
-      }
+      return resolvePlaceFromText(placesLib, queryText, userPosition);
     },
-    [placesLib]
+    [placesLib, userPosition]
   );
 
   const handleSearchSubmit = async () => {
@@ -343,8 +323,16 @@ export function PassengerBottomNav({
       }
     }
 
+    if (needsDestResolve && !resolvedDest) {
+      onToast('No se encontró ese destino en Barranquilla. Elige una sugerencia.');
+      setActiveField('destination');
+      destInputRef.current?.focus();
+      return;
+    }
+
     const focusTarget = resolvedDest?.position ?? resolvedOrigin?.position ?? userPosition;
     onFocusMap(focusTarget, 15);
+    onTripSubmitted();
     resetSession();
     closeSearch();
 
@@ -353,9 +341,9 @@ export function PassengerBottomNav({
     }
 
     if (resolvedDest) {
-      onToast(`Buscando rutas hacia ${resolvedDest.name}`);
+      onToast(`Rutas hacia ${resolvedDest.name}`);
     } else if (resolvedOrigin) {
-      onToast(`Buscando rutas desde ${resolvedOrigin.name}`);
+      onToast(`Rutas desde ${resolvedOrigin.name}`);
     } else {
       onToast('Mostrando buses cercanos a tu ubicación');
     }
@@ -392,11 +380,12 @@ export function PassengerBottomNav({
               <div
                 role="listbox"
                 aria-label="Sugerencias de lugares"
-                className="mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-100"
+                className="mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-[38vh] overflow-y-auto divide-y divide-slate-100"
               >
                 {activeField === 'origin' && (
                   <button
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={handleLocateUser}
                     className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 bg-teal-50/60 hover:bg-teal-100/70 transition-colors"
                   >
@@ -411,6 +400,7 @@ export function PassengerBottomNav({
                   <button
                     key={`st-${st.id}`}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() =>
                       applyPlacePoint(
                         {name: st.name, address: st.subtitle, position: st.position},
@@ -432,43 +422,54 @@ export function PassengerBottomNav({
                 ))}
 
                 {(isSuggestionsLoading || isResolvingPlace) && (
-                  <div className="px-3.5 py-3 flex items-center gap-2 text-xs text-slate-500">
+                  <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-slate-500 bg-slate-50/70">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
-                    <span>Buscando en Barranquilla...</span>
+                    <span>Buscando lugares en Barranquilla...</span>
                   </div>
                 )}
+
+                {placeSuggestions.map((suggestion, idx) => {
+                  const pred = suggestion.placePrediction;
+                  if (!pred) return null;
+                  const main = pred.mainText?.text ?? pred.text.text;
+                  const secondary = pred.secondaryText?.text ?? '';
+                  return (
+                    <button
+                      key={pred.placeId ?? `place-${idx}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void handleSelectPlaceSuggestion(suggestion)}
+                      className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
+                        {secondary && (
+                          <p className="text-[11px] text-slate-500 truncate">{secondary}</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
 
                 {!isSuggestionsLoading &&
-                  placeSuggestions.map((suggestion, idx) => {
-                    const pred = suggestion.placePrediction;
-                    if (!pred) return null;
-                    const main = pred.mainText?.text ?? pred.text.text;
-                    const secondary = pred.secondaryText?.text ?? '';
-                    return (
-                      <button
-                        key={pred.placeId ?? `place-${idx}`}
-                        type="button"
-                        onClick={() => void handleSelectPlaceSuggestion(suggestion)}
-                        className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-slate-50 transition-colors"
-                      >
-                        <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
-                          <MapPin className="w-3.5 h-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
-                          {secondary && (
-                            <p className="text-[11px] text-slate-500 truncate">{secondary}</p>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-
-                {!isSuggestionsLoading && suggestionsError && matchingStations.length === 0 && (
-                  <div className="px-3.5 py-3 text-xs text-amber-700 bg-amber-50">
-                    {suggestionsError}
-                  </div>
-                )}
+                  !isResolvingPlace &&
+                  placeSuggestions.length === 0 &&
+                  matchingStations.length === 0 &&
+                  autocompleteQuery.trim().length >= 2 && (
+                    <div
+                      className={`px-3.5 py-3 text-xs ${
+                        suggestionsError
+                          ? 'text-amber-700 bg-amber-50'
+                          : 'text-slate-500 bg-white'
+                      }`}
+                    >
+                      {suggestionsError ??
+                        'Sin coincidencias exactas. Pulsa "Buscar ruta" para búsqueda amplia.'}
+                    </div>
+                  )}
               </div>
             )}
 
@@ -491,12 +492,15 @@ export function PassengerBottomNav({
                         setOriginQuery('');
                       }
                     }}
+                    onBlur={() => {
+                      if (!originQuery.trim() && !originMarker) {
+                        setOriginQuery('Mi ubicación actual (GPS)');
+                      }
+                    }}
                     onChange={(e) => {
                       setOriginQuery(e.target.value);
                       setActiveField('origin');
-                      if (!e.target.value.trim()) {
-                        setOriginMarker(null);
-                      }
+                      setOriginMarker(null);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -564,10 +568,8 @@ export function PassengerBottomNav({
                     onChange={(e) => {
                       setDestQuery(e.target.value);
                       setActiveField('destination');
-                      if (!e.target.value.trim()) {
-                        setSelectedDestination(null);
-                        onDestinationCleared?.();
-                      }
+                      setSelectedDestination(null);
+                      onDestinationCleared?.();
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -634,10 +636,17 @@ export function PassengerBottomNav({
               type="button"
               onClick={() => {
                 closeSearch();
-                if (currentScreen !== 'rutas') onNavigate('rutas');
+                if (currentScreen !== 'rutas') {
+                  onNavigate('rutas');
+                } else {
+                  onToggleRoutesSearch?.();
+                }
               }}
               aria-current={currentScreen === 'rutas' ? 'page' : undefined}
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 ${
+              aria-expanded={
+                currentScreen === 'rutas' && onToggleRoutesSearch ? routesSearchOpen : undefined
+              }
+              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
                 currentScreen === 'rutas'
                   ? 'text-[#0D9488] font-medium'
                   : 'text-slate-500 hover:text-slate-900'
@@ -682,6 +691,7 @@ export function PassengerBottomNav({
             <button
               type="button"
               onClick={() => {
+                onCloseRoutesSearch?.();
                 setSearchOpen((open) => {
                   const next = !open;
                   if (next) {

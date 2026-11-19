@@ -1,12 +1,11 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
-  AlertTriangle,
   Bus,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Compass,
-  Layers,
   Loader2,
   LocateFixed,
   MapPin,
@@ -33,9 +32,14 @@ import {
   getDistanceToPolylineMeters,
   routeIntersectsBounds,
 } from '../data/barranquillaTransit';
+import {
+  resolvePlaceFromText,
+  useAutocompleteSuggestions,
+} from '../hooks/useAutocompleteSuggestions';
 import type {
   LatLng,
   MapBounds,
+  PlacePoint,
   RouteFilter,
   ScreenId,
   TransitStation,
@@ -116,7 +120,6 @@ interface PassengerRoutesScreenProps {
   onClearPendingMapFocus?: () => void;
   onUpdateUserPosition: (pos: LatLng) => void;
   onNavigate: (screen: ScreenId) => void;
-  onReportIncident: (title: string, description: string) => void;
 }
 
 export function PassengerRoutesScreen({
@@ -127,11 +130,14 @@ export function PassengerRoutesScreen({
   onClearPendingMapFocus,
   onUpdateUserPosition,
   onNavigate,
-  onReportIncident,
 }: PassengerRoutesScreenProps) {
+  const placesLib = useMapsLibrary('places');
+  const topSearchInputRef = useRef<HTMLInputElement | null>(null);
+
   const {
     originMarker,
     selectedDestination,
+    tripSubmittedNonce,
     setOriginMarker,
     setOriginQuery,
     setSelectedDestination,
@@ -139,7 +145,10 @@ export function PassengerRoutesScreen({
   } = tripPlanner;
 
   // Catalog filter state (from Rutas)
+  const [routesSearchOpen, setRoutesSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [topSearchFocused, setTopSearchFocused] = useState(false);
+  const [isResolvingTopPlace, setIsResolvingTopPlace] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState('all');
   const [filterByMapBounds, setFilterByMapBounds] = useState(true);
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
@@ -150,8 +159,6 @@ export function PassengerRoutesScreen({
   const [onlyToDestination, setOnlyToDestination] = useState(false);
   const [routeFilter] = useState<RouteFilter>('all');
   const [showFilters, setShowFilters] = useState(false);
-  const [showTrafficLayer, setShowTrafficLayer] = useState(false);
-  const [showCorridors, setShowCorridors] = useState(true);
   const [isLocatingUser, setIsLocatingUser] = useState(false);
 
   // Unified hidden-by-default drawer & modals
@@ -159,9 +166,6 @@ export function PassengerRoutesScreen({
   const [drawerTab, setDrawerTab] = useState<'nearby' | 'filtered'>('nearby');
   const [searchOpenNonce, setSearchOpenNonce] = useState(0);
   const [selectedStation, setSelectedStation] = useState<TransitStation | null>(null);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportText, setReportText] = useState('');
-  const [reportType, setReportType] = useState('Congestión vehicular');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const [mapSignal, setMapSignal] = useState<MapControlSignal | null>(null);
@@ -173,8 +177,13 @@ export function PassengerRoutesScreen({
   }, [toastMsg]);
 
   const triggerSignal = useCallback(
-    (type: MapControlSignal['type'], target?: LatLng, zoom?: number) => {
-      setMapSignal({type, target, zoom, nonce: Date.now()});
+    (
+      type: MapControlSignal['type'],
+      target?: LatLng,
+      zoom?: number,
+      boundsPoints?: LatLng[]
+    ) => {
+      setMapSignal({type, target, zoom, boundsPoints, nonce: Date.now()});
     },
     []
   );
@@ -205,6 +214,102 @@ export function PassengerRoutesScreen({
   }, [tick]);
 
   const activeOrigin = originMarker?.position ?? userPosition;
+
+  const {
+    suggestions: topPlaceSuggestions,
+    isLoading: isTopPlacesLoading,
+    error: topPlacesError,
+    resetSession: resetTopPlacesSession,
+  } = useAutocompleteSuggestions(
+    searchText,
+    topSearchFocused && searchText.trim().length >= 2,
+    activeOrigin
+  );
+
+  useEffect(() => {
+    if (tripSubmittedNonce <= 0) return;
+    if (selectedDestination) {
+      setOnlyToDestination(true);
+      setRadiusFilter(null);
+      setDrawerTab('nearby');
+      setPanelOpen(true);
+      triggerSignal('fitBounds', selectedDestination.position, 14, [
+        activeOrigin,
+        selectedDestination.position,
+      ]);
+    } else if (originMarker) {
+      setDrawerTab('nearby');
+      setPanelOpen(true);
+      triggerSignal('focus', originMarker.position, 15);
+    }
+  }, [tripSubmittedNonce, selectedDestination, originMarker, activeOrigin, triggerSignal]);
+
+  useEffect(() => {
+    if (!routesSearchOpen) {
+      setTopSearchFocused(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      topSearchInputRef.current?.focus();
+      setTopSearchFocused(true);
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [routesSearchOpen]);
+
+  const applyDestinationFromPlaces = useCallback(
+    (point: PlacePoint) => {
+      setSelectedDestination(point);
+      setDestQuery(point.name);
+      setOnlyToDestination(true);
+      setRadiusFilter(null);
+      setDrawerTab('nearby');
+      setPanelOpen(true);
+      setTopSearchFocused(false);
+      setRoutesSearchOpen(false);
+      setSearchText('');
+      triggerSignal('fitBounds', point.position, 14, [activeOrigin, point.position]);
+      setToastMsg(`Destino: ${point.name}`);
+    },
+    [activeOrigin, setDestQuery, setSelectedDestination, triggerSignal]
+  );
+
+  const handleSelectTopPlaceSuggestion = async (
+    suggestion: google.maps.places.AutocompleteSuggestion
+  ) => {
+    if (!placesLib || !suggestion.placePrediction) return;
+    setIsResolvingTopPlace(true);
+    try {
+      const place = suggestion.placePrediction.toPlace();
+      await place.fetchFields({
+        fields: ['displayName', 'formattedAddress', 'location'],
+      });
+      const loc = place.location;
+      if (loc) {
+        const name =
+          place.displayName ??
+          suggestion.placePrediction.mainText?.text ??
+          suggestion.placePrediction.text.text;
+        const address =
+          place.formattedAddress ??
+          suggestion.placePrediction.secondaryText?.text ??
+          'Barranquilla, Atlántico';
+        applyDestinationFromPlaces({
+          name,
+          address,
+          position: {lat: loc.lat(), lng: loc.lng()},
+        });
+        resetTopPlacesSession();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('OVER_QUERY_LIMIT')) {
+        window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+      }
+      setToastMsg('No se pudo obtener la ubicación de ese lugar');
+    } finally {
+      setIsResolvingTopPlace(false);
+    }
+  };
 
   const handleBoundsChanged = useCallback((bounds: MapBounds) => {
     setMapBounds(bounds);
@@ -249,29 +354,6 @@ export function PassengerRoutesScreen({
       {enableHighAccuracy: true, timeout: 6000}
     );
   }, [onUpdateUserPosition, setOriginMarker, setOriginQuery, triggerSignal]);
-
-  const handleToggleLayers = () => {
-    setShowTrafficLayer((prev) => {
-      const next = !prev;
-      setToastMsg(
-        next
-          ? 'Capa de tráfico en vivo activada en Barranquilla'
-          : 'Capa de corredores troncales actualizada'
-      );
-      return next;
-    });
-    setShowCorridors(true);
-  };
-
-  const handleSubmitIncident = (e: React.FormEvent) => {
-    e.preventDefault();
-    const detail =
-      reportText.trim() || 'Demora reportada por pasajero cerca de Estación La Catorce.';
-    onReportIncident(`${reportType} • Cra 46`, detail);
-    setReportText('');
-    setShowReportModal(false);
-    setToastMsg('Incidente enviado al Centro de Control BAQ');
-  };
 
   // Filtered routes catalog (only shown when user applies a filter)
   const baseMatches = useMemo(() => {
@@ -345,7 +427,7 @@ export function PassengerRoutesScreen({
   // Live nearby company buses
   const nearbyCompanyRoutes = useMemo(() => {
     const q = normalizeText(searchText.trim());
-    return COMPANY_BUS_ROUTES.map((route, idx) => {
+    const mapped = COMPANY_BUS_ROUTES.map((route, idx) => {
       const distanceToRoute = getDistanceToPolylineMeters(activeOrigin, route.path);
       const speedSeed = ((tick * 0.045 + idx * 0.17) % 1 + 1) % 1;
       const liveBusPos = interpolateAlongPath(route.path, speedSeed);
@@ -364,26 +446,46 @@ export function PassengerRoutesScreen({
         liveBusPos,
         distanceMeters: effectiveDist,
         busDistanceMeters,
+        destDistanceMeters: destDist,
         liveEta,
-        servesDestination: destDist !== null ? destDist <= 1600 : false,
+        servesDestination: destDist !== null ? destDist <= 1800 : false,
       };
-    })
-      .filter((item) => {
-        if (selectedCompany !== 'all' && item.route.company !== selectedCompany) return false;
-        if (radiusFilter !== null && item.distanceMeters > radiusFilter) return false;
-        if (onlyToDestination && selectedDestination && !item.servesDestination) return false;
-        if (
-          q &&
-          !normalizeText(item.route.company).includes(q) &&
-          !normalizeText(item.route.code).includes(q) &&
-          !normalizeText(item.route.description).includes(q) &&
-          !normalizeText(item.route.corridor).includes(q)
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+    }).filter((item) => {
+      if (selectedCompany !== 'all' && item.route.company !== selectedCompany) return false;
+      if (radiusFilter !== null && item.distanceMeters > radiusFilter) return false;
+      if (
+        q &&
+        !normalizeText(item.route.company).includes(q) &&
+        !normalizeText(item.route.code).includes(q) &&
+        !normalizeText(item.route.description).includes(q) &&
+        !normalizeText(item.route.corridor).includes(q)
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    if (onlyToDestination && selectedDestination) {
+      const serving = mapped.filter((item) => item.servesDestination);
+      if (serving.length > 0) {
+        return serving.sort((a, b) => a.distanceMeters - b.distanceMeters);
+      }
+      return [...mapped]
+        .sort(
+          (a, b) =>
+            (a.destDistanceMeters ?? a.distanceMeters) -
+            (b.destDistanceMeters ?? b.distanceMeters)
+        )
+        .slice(0, 6);
+    }
+
+    return mapped.sort((a, b) => {
+      if (selectedDestination) {
+        const diff = Number(b.servesDestination) - Number(a.servesDestination);
+        if (diff !== 0) return diff;
+      }
+      return a.distanceMeters - b.distanceMeters;
+    });
   }, [
     activeOrigin,
     tick,
@@ -417,6 +519,53 @@ export function PassengerRoutesScreen({
     [triggerSignal]
   );
 
+  const handleTopSearchSubmit = async () => {
+    const trimmed = searchText.trim();
+    if (!trimmed) return;
+
+    // Prioritize top Places suggestion if user typed a place name/address
+    if (topPlaceSuggestions.length > 0) {
+      const firstPred = topPlaceSuggestions[0];
+      if (firstPred.placePrediction) {
+        await handleSelectTopPlaceSuggestion(firstPred);
+        return;
+      }
+    }
+
+    if (baseMatches.length > 0 && baseMatches.length <= 6) {
+      setTopSearchFocused(false);
+      setRoutesSearchOpen(false);
+      setDrawerTab('filtered');
+      setPanelOpen(true);
+      handleSelectRoute(baseMatches[0]);
+      return;
+    }
+
+    if (placesLib) {
+      setIsResolvingTopPlace(true);
+      try {
+        const resolved = await resolvePlaceFromText(placesLib, trimmed, activeOrigin);
+        if (resolved) {
+          applyDestinationFromPlaces(resolved);
+          resetTopPlacesSession();
+          return;
+        }
+      } finally {
+        setIsResolvingTopPlace(false);
+      }
+    }
+
+    if (baseMatches.length > 0) {
+      setTopSearchFocused(false);
+      setRoutesSearchOpen(false);
+      setDrawerTab('filtered');
+      setPanelOpen(true);
+      return;
+    }
+
+    setToastMsg('No se encontraron rutas ni lugares para esa búsqueda');
+  };
+
   const handleOpenPanel = () => {
     setDrawerTab(hasActiveFilter ? 'filtered' : 'nearby');
     setPanelOpen(true);
@@ -426,59 +575,178 @@ export function PassengerRoutesScreen({
     <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
       {/* Unified Live Barranquilla Map (Full-bleed with compact floating filter bar) */}
       <main className="relative flex-1 min-h-[220px] w-full bg-[#E8ECEF] overflow-hidden">
-        {/* Slim Single-Row Floating Search + Company Filter */}
-        <div className="absolute top-2.5 left-2.5 right-2.5 z-30 pointer-events-none">
-          <div className="pointer-events-auto bg-white/95 backdrop-blur-sm rounded-[12px] shadow-md border border-slate-200 p-1.5 flex items-center gap-1.5">
-            <div className="relative flex-1 min-w-0 flex items-center">
-              <Search
-                aria-hidden="true"
-                className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
-              />
-              <input
-                type="text"
-                aria-label="Buscar ruta, código, empresa o barrio"
-                value={searchText}
-                onChange={(e) => {
-                  setSearchText(e.target.value);
-                  if (e.target.value.trim()) setDrawerTab('filtered');
-                }}
-                placeholder="Buscar ruta, barrio o vía..."
-                className="w-full h-8 pl-8 pr-6 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
-              />
-              {searchText && (
-                <button
-                  type="button"
-                  onClick={() => setSearchText('')}
-                  aria-label="Limpiar búsqueda"
-                  className="p-1 absolute right-1 text-slate-400 hover:text-slate-700"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
+        {/* Slim Single-Row Floating Search + Company Filter at Bottom (Visible only when Rutas button is pressed) */}
+        {routesSearchOpen && (
+          <div
+            className={`absolute left-2.5 right-2.5 z-30 pointer-events-none flex flex-col ${
+              panelOpen ? 'bottom-2.5' : 'bottom-6'
+            }`}
+          >
+            {/* Google Places + Route Catalog Dropdown opening upward above bottom search bar */}
+            {topSearchFocused && searchText.trim().length >= 2 && (
+              <div
+                role="listbox"
+                aria-label="Resultados de lugares y rutas"
+                className="pointer-events-auto mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-[42vh] overflow-y-auto divide-y divide-slate-100"
+              >
+                {(isTopPlacesLoading || isResolvingTopPlace) && (
+                  <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-slate-500 bg-slate-50/70">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0D9488]" />
+                    <span>Buscando lugares en Google Places...</span>
+                  </div>
+                )}
 
-            <select
-              aria-label="Filtrar por empresa"
-              value={selectedCompany}
-              onChange={(e) => {
-                setSelectedCompany(e.target.value);
-                if (e.target.value !== 'all') setDrawerTab('filtered');
-              }}
-              className="w-[136px] @[480px]:w-[185px] shrink-0 h-8 px-2 py-0 rounded-[8px] bg-slate-100/90 border border-slate-200 text-[11.5px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488] truncate"
-            >
-              <option value="all">Todas ({BUS_COMPANIES.length})</option>
-              {BUS_COMPANIES.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name} ({c.count})
-                </option>
-              ))}
-            </select>
+                {topPlaceSuggestions.map((suggestion, idx) => {
+                  const pred = suggestion.placePrediction;
+                  if (!pred) return null;
+                  const main = pred.mainText?.text ?? pred.text.text;
+                  const secondary = pred.secondaryText?.text ?? '';
+                  return (
+                    <button
+                      key={pred.placeId ?? `top-place-${idx}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void handleSelectTopPlaceSuggestion(suggestion)}
+                      className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-teal-50/60 transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
+                        {secondary && (
+                          <p className="text-[11px] text-slate-500 truncate">{secondary}</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {baseMatches.slice(0, 3).map((route) => (
+                  <button
+                    key={`top-route-${route.id}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setTopSearchFocused(false);
+                      setRoutesSearchOpen(false);
+                      setDrawerTab('filtered');
+                      setPanelOpen(true);
+                      handleSelectRoute(route);
+                    }}
+                    className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-50 transition-colors"
+                  >
+                    <span
+                      className={`px-2 py-0.5 ${getCompanyBadgeClass(
+                        route.company
+                      )} text-white font-headline text-[11px] font-bold rounded shrink-0`}
+                    >
+                      {route.code}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-900 truncate">
+                        {route.company} · {route.description}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">{route.corridor}</p>
+                    </div>
+                  </button>
+                ))}
+
+                {!isTopPlacesLoading &&
+                  !isResolvingTopPlace &&
+                  topPlaceSuggestions.length === 0 &&
+                  baseMatches.length === 0 && (
+                    <div
+                      className={`px-3.5 py-3 text-xs ${
+                        topPlacesError ? 'text-amber-700 bg-amber-50' : 'text-slate-500'
+                      }`}
+                    >
+                      {topPlacesError ??
+                        'Sin sugerencias exactas. Presiona Enter para buscar en Barranquilla.'}
+                    </div>
+                  )}
+              </div>
+            )}
+
+            <div className="pointer-events-auto bg-white/95 backdrop-blur-sm rounded-[12px] shadow-lg border border-slate-200 p-1.5 flex items-center gap-1.5">
+              <div className="relative flex-1 min-w-0 flex items-center">
+                <Search
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 z-10 pointer-events-none"
+                />
+                <input
+                  ref={topSearchInputRef}
+                  type="text"
+                  aria-label="Buscar ruta, lugar, barrio o dirección"
+                  value={searchText}
+                  onFocus={() => setTopSearchFocused(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setTopSearchFocused(false), 150);
+                  }}
+                  onChange={(e) => {
+                    setSearchText(e.target.value);
+                    setTopSearchFocused(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleTopSearchSubmit();
+                    } else if (e.key === 'Escape') {
+                      setTopSearchFocused(false);
+                      setRoutesSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Buscar lugar, dirección o ruta..."
+                  className="w-full h-8 pl-8 pr-6 py-0 leading-normal rounded-[8px] bg-slate-100/90 text-xs text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#0D9488] focus:bg-white"
+                />
+                {searchText && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSearchText('');
+                      resetTopPlacesSession();
+                    }}
+                    aria-label="Limpiar búsqueda"
+                    className="p-1 absolute right-1 text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <select
+                aria-label="Filtrar por empresa"
+                value={selectedCompany}
+                onChange={(e) => {
+                  setSelectedCompany(e.target.value);
+                  if (e.target.value !== 'all') setDrawerTab('filtered');
+                }}
+                className="w-[116px] @[480px]:w-[165px] shrink-0 h-8 px-2 py-0 rounded-[8px] bg-slate-100/90 border border-slate-200 text-[11.5px] font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0D9488] truncate"
+              >
+                <option value="all">Todas ({BUS_COMPANIES.length})</option>
+                {BUS_COMPANIES.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name} ({c.count})
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setRoutesSearchOpen(false)}
+                aria-label="Cerrar barra de búsqueda"
+                className="w-8 h-8 shrink-0 rounded-[8px] bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
         <BarranquillaPassengerMap
           routeFilter={routeFilter}
-          showTrafficLayer={showTrafficLayer}
-          showCorridors={showCorridors}
+          showTrafficLayer={false}
+          showCorridors={true}
           busT01Position={busT01Position}
           busA12Position={busA12Position}
           userPosition={userPosition}
@@ -509,11 +777,14 @@ export function PassengerRoutesScreen({
               `${bus.company} (${bus.code}) • a ${formatDistanceLabel(bus.distanceMeters)} • ${bus.etaMinutes} min`
             );
           }}
+          onSelectMapPoi={(place) => {
+            applyDestinationFromPlaces(place);
+          }}
         />
 
-        {/* Compact Active Trip Summary Pill (visible when pickup/destination chosen via +) */}
+        {/* Compact Active Trip Summary Pill (visible when pickup/destination chosen via + or search) */}
         {(originMarker || selectedDestination) && (
-          <div className="absolute top-[58px] left-2.5 right-14 z-20 pointer-events-auto">
+          <div className="absolute top-2.5 left-2.5 right-14 z-20 pointer-events-auto transition-all">
             <div className="px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 flex items-center justify-between gap-2">
               <button
                 type="button"
@@ -544,10 +815,10 @@ export function PassengerRoutesScreen({
           </div>
         )}
 
-        {/* Floating Map Utility Controls (GPS, Layers, Report) */}
+        {/* Floating Map Utility Control (GPS) */}
         <aside
           aria-label="Controles del mapa"
-          className="absolute right-2.5 top-[58px] z-20 flex flex-col gap-1.5"
+          className="absolute top-2.5 right-2.5 z-20 flex flex-col gap-1.5 transition-all"
         >
           <button
             type="button"
@@ -561,30 +832,10 @@ export function PassengerRoutesScreen({
               <LocateFixed className="w-4 h-4 text-[#0D9488]" />
             )}
           </button>
-          <button
-            type="button"
-            onClick={handleToggleLayers}
-            aria-label="Capas de tráfico"
-            className={`w-9 h-9 rounded-full shadow-md border flex items-center justify-center active:scale-95 transition-all ${
-              showTrafficLayer
-                ? 'bg-slate-900 text-teal-400 border-slate-700'
-                : 'bg-white/95 backdrop-blur-sm text-slate-900 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowReportModal(true)}
-            aria-label="Reportar incidente"
-            className="w-9 h-9 rounded-full bg-white/95 backdrop-blur-sm text-slate-900 shadow-md border border-slate-200 flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all"
-          >
-            <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
-          </button>
         </aside>
 
         {/* Clickable trigger pill to open the hidden bottom panel */}
-        {!panelOpen && (
+        {!panelOpen && !routesSearchOpen && (
           <button
             type="button"
             onClick={handleOpenPanel}
@@ -1011,6 +1262,9 @@ export function PassengerRoutesScreen({
         onNavigate={onNavigate}
         onDestinationCleared={() => setOnlyToDestination(false)}
         externalOpenNonce={searchOpenNonce}
+        routesSearchOpen={routesSearchOpen}
+        onToggleRoutesSearch={() => setRoutesSearchOpen((prev) => !prev)}
+        onCloseRoutesSearch={() => setRoutesSearchOpen(false)}
       />
 
       {/* Station Details / Schedule Modal */}
@@ -1078,65 +1332,11 @@ export function PassengerRoutesScreen({
         </div>
       )}
 
-      {/* Report Incident Modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-          <form
-            onSubmit={handleSubmitIncident}
-            className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <h3 className="font-headline text-base font-bold text-slate-900 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
-                Reportar Novedad en Ruta
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowReportModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-3 text-xs">
-              <label className="block">
-                <span className="font-medium text-slate-700">Tipo de novedad</span>
-                <select
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 text-slate-900"
-                >
-                  <option>Congestión vehicular</option>
-                  <option>Bus lleno en parada</option>
-                  <option>Daño en estación</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="font-medium text-slate-700">Detalles (opcional)</span>
-                <textarea
-                  rows={2}
-                  value={reportText}
-                  onChange={(e) => setReportText(e.target.value)}
-                  placeholder="Ej. Trancón en Cra 46 con Calle 72..."
-                  className="mt-1 w-full rounded-lg border border-slate-300 p-2.5 text-slate-900"
-                />
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="w-full min-h-[46px] rounded-[10px] bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold"
-            >
-              Enviar Reporte al Operador
-            </button>
-          </form>
-        </div>
-      )}
-
       {/* Toast Feedback Banner */}
       {toastMsg && (
         <div
           className={`absolute left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-3.5 py-2 rounded-full shadow-xl text-xs font-medium flex items-center gap-2 max-w-[90%] whitespace-nowrap ${
-            originMarker || selectedDestination ? 'top-[102px]' : 'top-[58px]'
+            originMarker || selectedDestination ? 'top-[52px]' : 'top-3'
           }`}
         >
           <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />

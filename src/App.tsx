@@ -53,6 +53,7 @@ export default function App() {
     zoom: number;
     nonce: number;
   } | null>(null);
+  const [tripSubmittedNonce, setTripSubmittedNonce] = useState(0);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,20 +120,6 @@ export default function App() {
     setGlobalToast('Alerta de pánico del bus #B-304 recibida en el Operador');
   }, []);
 
-  const handlePassengerReport = useCallback((title: string, description: string) => {
-    setIncidents((prev) => [
-      {
-        id: `inc-pax-${Date.now()}`,
-        severity: 'warning',
-        title,
-        timeAgo: 'Ahora mismo',
-        description,
-      },
-      ...prev,
-    ]);
-    setGlobalToast('Reporte de pasajero recibido en el Centro de Control');
-  }, []);
-
   const handleBroadcast = useCallback((text: string) => {
     setIncomingBroadcast({text, nonce: Date.now()});
     setGlobalToast('Comunicado enviado a las consolas de conductores');
@@ -142,18 +129,24 @@ export default function App() {
     setPendingMapFocus({position, zoom, nonce: Date.now()});
   }, []);
 
+  const handleTripSubmitted = useCallback(() => {
+    setTripSubmittedNonce((n) => n + 1);
+  }, []);
+
   const tripPlanner: TripPlannerState = {
     originQuery,
     originMarker,
     destQuery,
     selectedDestination,
     userPosition,
+    tripSubmittedNonce,
     setOriginQuery,
     setOriginMarker,
     setDestQuery,
     setSelectedDestination,
     onUpdateUserPosition: setUserPosition,
     onFocusMap: handleFocusMap,
+    onTripSubmitted: handleTripSubmitted,
     onToast: setGlobalToast,
   };
 
@@ -203,7 +196,6 @@ export default function App() {
                 onClearPendingMapFocus={() => setPendingMapFocus(null)}
                 onUpdateUserPosition={setUserPosition}
                 onNavigate={navigateTo}
-                onReportIncident={handlePassengerReport}
               />
             )}
             {screen === 'billetera' && (

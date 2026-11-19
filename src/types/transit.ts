@@ -30,12 +30,14 @@ export interface TripPlannerState {
   destQuery: string;
   selectedDestination: PlacePoint | null;
   userPosition: LatLng;
+  tripSubmittedNonce: number;
   setOriginQuery: (value: string) => void;
   setOriginMarker: (point: PlacePoint | null) => void;
   setDestQuery: (value: string) => void;
   setSelectedDestination: (point: PlacePoint | null) => void;
   onUpdateUserPosition: (pos: LatLng) => void;
   onFocusMap: (pos: LatLng, zoom?: number) => void;
+  onTripSubmitted: () => void;
   onToast: (msg: string) => void;
 }
 
