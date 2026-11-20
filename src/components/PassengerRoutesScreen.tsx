@@ -28,6 +28,7 @@ import {
 import {
   BARRANQUILLA_PASSENGER_CENTER,
   INITIAL_ROUTE_CARDS,
+  TRANSIT_STATIONS,
   USER_GPS_POSITION,
   formatCOP,
   formatDistanceLabel,
@@ -36,6 +37,7 @@ import {
   routeIntersectsBounds,
 } from '../data/barranquillaTransit';
 import {
+  resolveNearbyPlace,
   resolvePlaceFromText,
   useAutocompleteSuggestions,
 } from '../hooks/useAutocompleteSuggestions';
@@ -45,6 +47,7 @@ import type {
   PlacePoint,
   RouteFilter,
   ScreenId,
+  SelectedTicketRoute,
   TransitStation,
   TripPlannerState,
 } from '../types/transit';
@@ -57,6 +60,7 @@ import {
 import {PassengerBottomNav} from './PassengerBottomNav';
 import {PWAInstallButton} from './PWAInstallButton';
 import {findTripRoutes} from '../utils/tripRouteMatcher';
+import {buildSimulatedRouteFleet} from '../utils/routeFleetSimulator';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-cyan-600',
@@ -151,6 +155,7 @@ interface PassengerRoutesScreenProps {
   pendingMapFocus?: {position: LatLng; zoom: number; nonce: number} | null;
   onClearPendingMapFocus?: () => void;
   onUpdateUserPosition: (pos: LatLng) => void;
+  onBuyRouteTicket?: (route: SelectedTicketRoute) => void;
   onNavigate: (screen: ScreenId) => void;
 }
 
@@ -161,10 +166,10 @@ export function PassengerRoutesScreen({
   pendingMapFocus,
   onClearPendingMapFocus,
   onUpdateUserPosition,
+  onBuyRouteTicket,
   onNavigate,
 }: PassengerRoutesScreenProps) {
   const placesLib = useMapsLibrary('places');
-  const geocodingLib = useMapsLibrary('geocoding');
   const topSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
@@ -239,8 +244,9 @@ export function PassengerRoutesScreen({
     onClearPendingMapFocus?.();
   }, [pendingMapFocus, onClearPendingMapFocus, triggerSignal]);
 
-  // Real-time bus telemetry ticker
+  // Real-time bus telemetry ticker (nearby buses & filtered route fleet)
   const [tick, setTick] = useState(0);
+  const [fleetSeconds, setFleetSeconds] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => {
       setTick((t) => (t + 1) % 60);
@@ -343,36 +349,51 @@ export function PassengerRoutesScreen({
     async (pos: LatLng): Promise<PlacePoint> => {
       const fallbackName = `Pin (${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)})`;
       const fallbackAddress = 'Barranquilla, Atlántico';
-      if (!geocodingLib) {
-        return {name: fallbackName, address: fallbackAddress, position: pos};
-      }
-      try {
-        const geocoder = new geocodingLib.Geocoder();
-        const response = await geocoder.geocode({location: pos});
-        const best = response.results?.[0];
-        if (!best?.formatted_address) {
-          return {name: fallbackName, address: fallbackAddress, position: pos};
+
+      if (placesLib) {
+        const nearby = await resolveNearbyPlace(placesLib, pos);
+        if (nearby) {
+          return nearby;
         }
-        const cleanedFull = best.formatted_address
-          .replace(/,\s*Barranquilla,\s*Atlántico,\s*Colombia$/i, '')
-          .replace(/,\s*Colombia$/i, '')
-          .trim();
-        const shortName =
-          cleanedFull.split(',')[0]?.trim() || cleanedFull || fallbackName;
+      }
+
+      // Local Barranquilla station/corridor fallback (zero external API dependency)
+      let nearestStation: {name: string; subtitle: string; dist: number} | null = null;
+      for (const st of TRANSIT_STATIONS) {
+        const d = getDistanceMeters(pos, st.position);
+        if (d <= 250 && (!nearestStation || d < nearestStation.dist)) {
+          nearestStation = {name: st.name, subtitle: st.subtitle, dist: d};
+        }
+      }
+      if (nearestStation) {
         return {
-          name: shortName,
-          address: cleanedFull || best.formatted_address,
+          name: `Cerca de ${nearestStation.name}`,
+          address: nearestStation.subtitle,
           position: pos,
         };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('OVER_QUERY_LIMIT')) {
-          window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-        }
-        return {name: fallbackName, address: fallbackAddress, position: pos};
       }
+
+      let nearestCorridor: {label: string; dist: number} | null = null;
+      for (const r of COMPANY_BUS_ROUTES) {
+        const d = getDistanceToPolylineMeters(pos, r.path);
+        if (d <= 350 && (!nearestCorridor || d < nearestCorridor.dist)) {
+          const label =
+            r.barriosCubiertos[0] ??
+            (r.corridor && !r.corridor.startsWith('Recorrido oficial') ? r.corridor : r.name);
+          nearestCorridor = {label, dist: d};
+        }
+      }
+      if (nearestCorridor) {
+        return {
+          name: `Sector ${nearestCorridor.label}`,
+          address: `Pin (${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}) · Barranquilla`,
+          position: pos,
+        };
+      }
+
+      return {name: fallbackName, address: fallbackAddress, position: pos};
     },
-    [geocodingLib]
+    [placesLib]
   );
 
   const handlePickMapCoordinate = useCallback(
@@ -741,6 +762,32 @@ export function PassengerRoutesScreen({
       color: item.route.color,
     }));
   }, [nearbyCompanyRoutes]);
+
+  const showNearbyBusesOnMap = panelOpen && drawerTab === 'nearby';
+
+  const activeFleetRoutes = useMemo(() => {
+    if (selectedRoute) return [selectedRoute];
+    if (filteredRoutes.length > 0) return filteredRoutes;
+    return [];
+  }, [selectedRoute, filteredRoutes]);
+
+  useEffect(() => {
+    if (activeFleetRoutes.length === 0) return;
+    const id = window.setInterval(() => {
+      setFleetSeconds((s) => s + 1);
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [activeFleetRoutes.length]);
+
+  const routeBuses = useMemo(() => {
+    if (activeFleetRoutes.length === 0) return [];
+    return buildSimulatedRouteFleet(
+      activeFleetRoutes,
+      fleetSeconds,
+      selectedRoute?.id ?? null,
+      routeDirectionMode
+    );
+  }, [activeFleetRoutes, fleetSeconds, selectedRoute?.id, routeDirectionMode]);
 
   const totalNearbyCount = nearbyTransmetroRoutes.length + nearbyCompanyRoutes.length;
 
@@ -1228,7 +1275,9 @@ export function PassengerRoutesScreen({
           routeDirectionMode={routeDirectionMode}
           catalogRoutes={filteredRoutes}
           userRadiusMeters={radiusFilter}
+          showNearbyBuses={showNearbyBusesOnMap}
           nearbyBuses={nearbyBusMarkers}
+          routeBuses={routeBuses}
           signal={mapSignal}
           mapPickMode={mapPickTarget}
           draftPickPosition={draftPickPosition}
@@ -1251,6 +1300,24 @@ export function PassengerRoutesScreen({
             else triggerSignal('focus', bus.position, 15);
             setToastMsg(
               `${bus.company} (${bus.code}) • a ${formatDistanceLabel(bus.distanceMeters)} • ${bus.etaMinutes} min`
+            );
+          }}
+          onSelectRouteBus={(bus) => {
+            const found = COMPANY_BUS_ROUTES.find((r) => r.id === bus.routeId);
+            if (found && selectedRoute?.id !== found.id) {
+              setSelectedRoute(found);
+              setRouteDirectionMode('both');
+              setShowRouteTextDetails(false);
+            }
+            triggerSignal('focus', bus.position, 15);
+            const dirLabel =
+              bus.direction === 'regreso'
+                ? 'Sentido Vuelta'
+                : bus.direction === 'ida'
+                ? 'Sentido Ida'
+                : 'En recorrido';
+            setToastMsg(
+              `${bus.company} (${bus.code}) · Bus #${bus.unitNumber}/${bus.totalUnits} · ${dirLabel}`
             );
           }}
           onSelectMapPoi={(place) => {
@@ -1558,6 +1625,37 @@ export function PassengerRoutesScreen({
                   )}
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onBuyRouteTicket) {
+                    onBuyRouteTicket({
+                      id: selectedRoute.id,
+                      code: selectedRoute.code,
+                      company: selectedRoute.company,
+                      name: selectedRoute.name,
+                      fareCop: selectedRoute.fareCop,
+                    });
+                  } else {
+                    onNavigate('qr');
+                  }
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                aria-label={`Comprar pasaje QR para la ruta ${selectedRoute.code} de ${selectedRoute.company} por ${formatCOP(selectedRoute.fareCop)}`}
+                className="w-full min-h-[38px] px-3 py-2 rounded-[10px] bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold flex items-center justify-between gap-2 shadow-sm active:scale-[0.99] transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <QrCode className="w-4 h-4 shrink-0" />
+                  <span className="truncate">
+                    Comprar pasaje · Ruta {selectedRoute.code}
+                  </span>
+                </span>
+                <span className="font-mono text-[11px] font-bold bg-white/15 px-2 py-0.5 rounded-md shrink-0 tabular-nums">
+                  {formatCOP(selectedRoute.fareCop)}
+                </span>
+              </button>
             </div>
           ) : (
             <button

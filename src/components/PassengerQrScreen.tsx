@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {
   ArrowLeft,
+  Bus,
   CheckCircle2,
   CreditCard,
   Nfc,
@@ -9,18 +10,26 @@ import {
   ShieldCheck,
   Users,
   Wallet,
+  X,
 } from 'lucide-react';
 import {formatCOP} from '../data/barranquillaTransit';
-import type {ScreenId, TripPlannerState} from '../types/transit';
+import type {ScreenId, SelectedTicketRoute, TripPlannerState} from '../types/transit';
 import {PassengerBottomNav} from './PassengerBottomNav';
 
 interface PassengerQrScreenProps {
   balance: number;
   tripPlanner: TripPlannerState;
+  selectedTicketRoute?: SelectedTicketRoute | null;
+  onClearTicketRoute?: () => void;
+  onPurchaseTicket?: (
+    route: SelectedTicketRoute | null,
+    passengerCount: number,
+    totalCop: number
+  ) => boolean;
   onNavigate: (screen: ScreenId) => void;
 }
 
-const FARE_PER_PASSENGER = 3100;
+const DEFAULT_FARE_PER_PASSENGER = 3100;
 
 const QR_DATA_CELLS: Array<{x: number; y: number; w: number; h: number; accent?: boolean}> = [
   {x: 42, y: 8, w: 6, h: 6},
@@ -53,13 +62,31 @@ const QR_DATA_CELLS: Array<{x: number; y: number; w: number; h: number; accent?:
   {x: 96, y: 98, w: 14, h: 12},
 ];
 
-export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQrScreenProps) {
+export function PassengerQrScreen({
+  balance,
+  tripPlanner,
+  selectedTicketRoute = null,
+  onClearTicketRoute,
+  onPurchaseTicket,
+  onNavigate,
+}: PassengerQrScreenProps) {
   const [ticketCode, setTicketCode] = useState('TK-BAQ-883492');
   const [qrSeed, setQrSeed] = useState(1);
   const [secondsLeft, setSecondsLeft] = useState(102);
   const [nfcEnabled, setNfcEnabled] = useState(true);
   const [passengerCount, setPassengerCount] = useState<1 | 2 | 3>(1);
+  const [purchasedTicket, setPurchasedTicket] = useState<{
+    routeId: string | null;
+    routeLabel: string;
+    count: number;
+    totalCop: number;
+    code: string;
+  } | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPurchasedTicket(null);
+  }, [selectedTicketRoute?.id]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -78,9 +105,10 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
     secondsLeft % 60
   ).padStart(2, '0')} min`;
 
-  const requiredCop = passengerCount * FARE_PER_PASSENGER;
+  const farePerPassenger = selectedTicketRoute?.fareCop ?? DEFAULT_FARE_PER_PASSENGER;
+  const requiredCop = passengerCount * farePerPassenger;
   const hasEnoughBalance = balance >= requiredCop;
-  const tripsAvailable = Math.floor(balance / FARE_PER_PASSENGER);
+  const tripsAvailable = Math.floor(balance / farePerPassenger);
 
   const handleRefreshQr = (nextCount?: 1 | 2 | 3) => {
     const rnd = Math.floor(100000 + Math.random() * 900000);
@@ -94,6 +122,36 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
     } else {
       setToastMsg('Nuevo código QR dinámico generado');
     }
+  };
+
+  const handleConfirmPurchase = () => {
+    if (!hasEnoughBalance) {
+      setToastMsg('Saldo insuficiente. Recarga en Billetera.');
+      return;
+    }
+    const ok = onPurchaseTicket
+      ? onPurchaseTicket(selectedTicketRoute, passengerCount, requiredCop)
+      : true;
+    if (!ok) return;
+    const rnd = Math.floor(100000 + Math.random() * 900000);
+    const nextCode = `TK-BAQ-${rnd}`;
+    setTicketCode(nextCode);
+    setQrSeed((s) => s + 1);
+    setSecondsLeft(120);
+    setPurchasedTicket({
+      routeId: selectedTicketRoute?.id ?? null,
+      routeLabel: selectedTicketRoute
+        ? `Ruta ${selectedTicketRoute.code} · ${selectedTicketRoute.company}`
+        : 'Pasaje general Bus BAQ',
+      count: passengerCount,
+      totalCop: requiredCop,
+      code: nextCode,
+    });
+    setToastMsg(
+      selectedTicketRoute
+        ? `Pasaje comprado para ruta ${selectedTicketRoute.code}`
+        : 'Pasaje QR comprado correctamente'
+    );
   };
 
   return (
@@ -115,7 +173,11 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
                 Ticket QR de Abordaje
               </h1>
               <p className="text-[11px] sm:text-xs text-slate-500 truncate">
-                Validador digital Barranquilla · {formatCOP(FARE_PER_PASSENGER)} c/u
+                {selectedTicketRoute
+                  ? `Ruta ${selectedTicketRoute.code} (${selectedTicketRoute.company}) · ${formatCOP(
+                      farePerPassenger
+                    )} c/u`
+                  : `Validador digital Barranquilla · ${formatCOP(farePerPassenger)} c/u`}
               </p>
             </div>
           </div>
@@ -144,7 +206,7 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
             <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/10">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="px-2 py-0.5 rounded bg-[#0D9488] text-white font-mono text-[11px] font-bold shrink-0">
-                  QR DINÁMICO
+                  {purchasedTicket ? 'PASAJE ACTIVO' : 'QR DINÁMICO'}
                 </span>
                 <span className="text-xs text-white/85 truncate">
                   {passengerCount} {passengerCount === 1 ? 'pasaje' : 'pasajes'} ·{' '}
@@ -164,6 +226,32 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
                 <span>{hasEnoughBalance ? 'Listo' : 'Saldo bajo'}</span>
               </div>
             </div>
+
+            {selectedTicketRoute && (
+              <div className="mt-3 px-3 py-2 rounded-xl bg-white/10 border border-white/15 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bus className="w-4 h-4 text-[#14B8A6] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">
+                      Ruta {selectedTicketRoute.code} · {selectedTicketRoute.company}
+                    </p>
+                    <p className="text-[11px] text-white/75 truncate">
+                      {selectedTicketRoute.name}
+                    </p>
+                  </div>
+                </div>
+                {onClearTicketRoute && (
+                  <button
+                    type="button"
+                    onClick={onClearTicketRoute}
+                    aria-label="Quitar ruta seleccionada"
+                    className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Dynamic SVG QR Code */}
             <div className="my-4 flex flex-col items-center">
@@ -233,6 +321,41 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
                   </strong>
                 </span>
               </div>
+
+              <div className="mt-3.5 w-full">
+                {purchasedTicket ? (
+                  <div className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-500/20 border border-emerald-400/35 text-emerald-200 text-xs flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="truncate font-semibold">
+                        Pasaje comprado · {purchasedTicket.routeLabel}
+                      </span>
+                    </span>
+                    <span className="font-mono text-[11px] font-bold shrink-0">
+                      {purchasedTicket.code}
+                    </span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConfirmPurchase}
+                    className={`w-full min-h-[42px] px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      hasEnoughBalance
+                        ? 'bg-[#0D9488] hover:bg-[#14B8A6] text-white shadow-md active:scale-[0.99]'
+                        : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40'
+                    }`}
+                  >
+                    <QrCode className="w-4 h-4 shrink-0" />
+                    <span>
+                      {selectedTicketRoute
+                        ? `Comprar pasaje Ruta ${selectedTicketRoute.code} · ${formatCOP(
+                            requiredCop
+                          )}`
+                        : `Comprar pasaje QR · ${formatCOP(requiredCop)}`}
+                    </span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* NFC Toggle Row */}
@@ -292,6 +415,7 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
                       type="button"
                       onClick={() => {
                         setPassengerCount(count);
+                        setPurchasedTicket(null);
                         handleRefreshQr(count);
                       }}
                       className={`min-h-[42px] rounded-[10px] text-xs font-semibold border transition-all cursor-pointer ${

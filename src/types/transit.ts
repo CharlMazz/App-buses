@@ -112,3 +112,12 @@ export interface DriverStop {
   scheduledTime: string;
   distanceMeters: number;
 }
+
+export interface SelectedTicketRoute {
+  id: string;
+  code: string;
+  company: string;
+  name: string;
+  fareCop: number;
+}
+

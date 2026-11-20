@@ -115,6 +115,39 @@ export async function resolvePlaceFromText(
   return null;
 }
 
+export async function resolveNearbyPlace(
+  placesLib: google.maps.PlacesLibrary,
+  pos: LatLng
+): Promise<PlacePoint | null> {
+  try {
+    const {places} = await placesLib.Place.searchNearby({
+      fields: ['displayName', 'formattedAddress', 'location'],
+      locationRestriction: {center: pos, radius: 140},
+      maxResultCount: 1,
+      rankPreference: 'DISTANCE',
+      language: 'es',
+      region: 'co',
+      internalUsageAttributionIds: ATTRIBUTION_IDS,
+    });
+    const best = places?.[0];
+    if (!best) return null;
+    const rawAddr = best.formattedAddress ?? 'Barranquilla, Atlántico';
+    const cleanedAddr = rawAddr
+      .replace(/,\s*Barranquilla,\s*Atlántico,\s*Colombia$/i, '')
+      .replace(/,\s*Colombia$/i, '')
+      .trim();
+    const name = best.displayName ?? (cleanedAddr.split(',')[0]?.trim() || 'Punto en mapa');
+    return {
+      name,
+      address: cleanedAddr || rawAddr,
+      position: pos,
+    };
+  } catch (err) {
+    notifyIfQuotaError(err);
+    return null;
+  }
+}
+
 export interface UseAutocompleteSuggestionsReturn {
   suggestions: google.maps.places.AutocompleteSuggestion[];
   isLoading: boolean;

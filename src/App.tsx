@@ -16,6 +16,7 @@ import type {
   OperationalIncident,
   PlacePoint,
   ScreenId,
+  SelectedTicketRoute,
   TripPlannerState,
   WalletTransaction,
 } from './types/transit';
@@ -61,6 +62,7 @@ export default function App() {
   const [tripSubmittedNonce, setTripSubmittedNonce] = useState(0);
   const [mapPickTarget, setMapPickTarget] = useState<'origin' | 'destination' | null>(null);
   const [reopenTripNonce, setReopenTripNonce] = useState(0);
+  const [selectedTicketRoute, setSelectedTicketRoute] = useState<SelectedTicketRoute | null>(null);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,6 +106,41 @@ export default function App() {
       ...prev,
     ]);
   }, []);
+
+  const handleBuyRouteTicket = useCallback(
+    (route: SelectedTicketRoute) => {
+      setSelectedTicketRoute(route);
+      navigateTo('qr');
+    },
+    [navigateTo]
+  );
+
+  const handlePurchaseTicket = useCallback(
+    (route: SelectedTicketRoute | null, passengerCount: number, totalCop: number): boolean => {
+      if (balance < totalCop) {
+        setGlobalToast('Saldo insuficiente para comprar este pasaje');
+        return false;
+      }
+      setBalance((prev) => prev - totalCop);
+      setTransactions((prev) => [
+        {
+          id: `tx-ticket-${Date.now()}`,
+          type: 'trip',
+          title: route ? `Pasaje ${route.code} · ${route.company}` : 'Pasaje Bus BAQ',
+          subtitle: `Ahora mismo • ${passengerCount} ${passengerCount === 1 ? 'pasaje' : 'pasajes'} QR`,
+          amountCop: -totalCop,
+        },
+        ...prev,
+      ]);
+      setGlobalToast(
+        route
+          ? `Pasaje comprado para ruta ${route.code} (${route.company})`
+          : 'Pasaje QR comprado exitosamente'
+      );
+      return true;
+    },
+    [balance]
+  );
 
   const handleSimulateBoarding = useCallback(() => {
     setExtraPax((p) => p + 1);
@@ -166,7 +203,7 @@ export default function App() {
   return (
     <APIProvider
       apiKey={MAPS_API_KEY}
-      libraries={['marker', 'maps', 'places', 'geocoding']}
+      libraries={['marker', 'maps', 'places']}
       language="es"
       region="CO"
     >
@@ -200,6 +237,7 @@ export default function App() {
                 pendingMapFocus={pendingMapFocus}
                 onClearPendingMapFocus={() => setPendingMapFocus(null)}
                 onUpdateUserPosition={setUserPosition}
+                onBuyRouteTicket={handleBuyRouteTicket}
                 onNavigate={navigateTo}
               />
             )}
@@ -216,6 +254,9 @@ export default function App() {
               <PassengerQrScreen
                 balance={balance}
                 tripPlanner={tripPlanner}
+                selectedTicketRoute={selectedTicketRoute}
+                onClearTicketRoute={() => setSelectedTicketRoute(null)}
+                onPurchaseTicket={handlePurchaseTicket}
                 onNavigate={navigateTo}
               />
             )}

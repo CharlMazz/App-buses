@@ -19,6 +19,7 @@ import {
 } from '../data/barranquillaTransit';
 import type {CompanyRouteItem} from '../data/busRoutesCatalog';
 import {fetchPlaceDetailsById} from '../hooks/useAutocompleteSuggestions';
+import type {RouteFleetBusMarker} from '../utils/routeFleetSimulator';
 import type {
   FleetBus,
   LatLng,
@@ -443,7 +444,9 @@ interface BarranquillaPassengerMapProps {
   routeDirectionMode?: RouteDirectionMode;
   catalogRoutes?: CompanyRouteItem[];
   userRadiusMeters?: number | null;
+  showNearbyBuses?: boolean;
   nearbyBuses?: NearbyBusMarker[];
+  routeBuses?: RouteFleetBusMarker[];
   signal: MapControlSignal | null;
   mapPickMode?: 'origin' | 'destination' | null;
   draftPickPosition?: LatLng | null;
@@ -454,6 +457,7 @@ interface BarranquillaPassengerMapProps {
   onSelectStation: (station: TransitStation) => void;
   onSelectBus: (routeCode: string) => void;
   onSelectNearbyBus?: (bus: NearbyBusMarker) => void;
+  onSelectRouteBus?: (bus: RouteFleetBusMarker) => void;
   onSelectMapPoi?: (place: PlacePoint) => void;
 }
 
@@ -470,7 +474,9 @@ export function BarranquillaPassengerMap({
   routeDirectionMode = 'both',
   catalogRoutes = [],
   userRadiusMeters,
+  showNearbyBuses = false,
   nearbyBuses = [],
+  routeBuses = [],
   signal,
   mapPickMode = null,
   draftPickPosition = null,
@@ -481,21 +487,23 @@ export function BarranquillaPassengerMap({
   onSelectStation,
   onSelectBus,
   onSelectNearbyBus,
+  onSelectRouteBus,
   onSelectMapPoi,
 }: BarranquillaPassengerMapProps) {
   const isDraggingRef = useRef(false);
   const placesLib = useMapsLibrary('places');
 
-  const showT01 = routeFilter === 'all' || routeFilter === 'troncal';
-  const showA12 = routeFilter === 'all' || routeFilter === 'alimentador';
+  const showT01 = showNearbyBuses && (routeFilter === 'all' || routeFilter === 'troncal');
+  const showA12 = showNearbyBuses && (routeFilter === 'all' || routeFilter === 'alimentador');
   const activeOrigin = originMarker?.position ?? userPosition;
   const visibleNearbyMarkers = React.useMemo(() => {
+    if (!showNearbyBuses) return [];
     const top = nearbyBuses.slice(0, 5);
     if (!selectedCompanyRoute) return top;
     const selectedBus = nearbyBuses.find((b) => b.id === `bus-${selectedCompanyRoute.id}`);
     if (!selectedBus || top.some((b) => b.id === selectedBus.id)) return top;
     return [selectedBus, ...top.slice(0, 4)];
-  }, [nearbyBuses, selectedCompanyRoute]);
+  }, [showNearbyBuses, nearbyBuses, selectedCompanyRoute]);
 
   return (
     <div className="absolute inset-0 w-full h-full">
@@ -555,7 +563,10 @@ export function BarranquillaPassengerMap({
           selectedRouteId={selectedCompanyRoute?.id ?? null}
           onSelectRoute={(route) => onSelectCatalogRoute?.(route)}
         />
-        <RadiusCircleOverlay center={activeOrigin} radiusMeters={userRadiusMeters} />
+        <RadiusCircleOverlay
+          center={activeOrigin}
+          radiusMeters={showNearbyBuses ? userRadiusMeters : null}
+        />
         <TripConnectionOverlay origin={activeOrigin} destination={selectedDestination?.position} />
         <SelectedRouteOverlay
           route={selectedCompanyRoute}
@@ -662,6 +673,48 @@ export function BarranquillaPassengerMap({
             </button>
           </AdvancedMarker>
         ))}
+
+        {/* Live Buses Traveling Along Filtered / Selected Routes (3 to 6 buses per route) */}
+        {routeBuses.map((bus) => {
+          const dirDotColor =
+            bus.direction === 'regreso'
+              ? 'bg-[#E74C3C]'
+              : bus.direction === 'ida'
+              ? 'bg-[#2ECC71]'
+              : 'bg-[#0D9488]';
+          const dirLabel =
+            bus.direction === 'regreso'
+              ? 'Vuelta'
+              : bus.direction === 'ida'
+              ? 'Ida'
+              : 'Recorrido';
+
+          return (
+            <AdvancedMarker
+              key={bus.id}
+              position={bus.position}
+              zIndex={65}
+              onClick={() => {
+                if (!isDraggingRef.current) onSelectRouteBus?.(bus);
+              }}
+              title={`${bus.company} · Ruta ${bus.code} · Bus #${bus.unitNumber}/${bus.totalUnits} (${dirLabel})`}
+            >
+              <button
+                type="button"
+                className="px-1.5 py-0.5 rounded-full bg-slate-900/95 hover:bg-[#0D9488] text-white shadow-lg border-[1.5px] border-white flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform focus:outline-none"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${dirDotColor} shrink-0`} />
+                <Bus className="w-3 h-3 text-teal-300 shrink-0" />
+                <span className="font-headline text-[10px] font-bold whitespace-nowrap">
+                  {bus.code}
+                </span>
+                <span className="font-mono text-[9px] text-slate-300">
+                  #{bus.unitNumber}
+                </span>
+              </button>
+            </AdvancedMarker>
+          );
+        })}
 
         {/* Selected Bus Company Route Endpoints & Badge (rutaquilla.me style) */}
         {selectedCompanyRoute && (
