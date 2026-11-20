@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Compass,
   Filter,
+  Layers,
   Loader2,
   LocateFixed,
   MapPin,
@@ -204,6 +205,7 @@ export function PassengerRoutesScreen({
   const [routeFilter] = useState<RouteFilter>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [isLocatingUser, setIsLocatingUser] = useState(false);
+  const [minimalMap, setMinimalMap] = useState(true);
 
   // Unified hidden-by-default drawer & modals
   const [panelOpen, setPanelOpen] = useState(false);
@@ -1266,6 +1268,7 @@ export function PassengerRoutesScreen({
           routeFilter={routeFilter}
           showTrafficLayer={false}
           showCorridors={false}
+          minimalMap={minimalMap}
           busT01Position={busT01Position}
           busA12Position={busA12Position}
           userPosition={userPosition}
@@ -1457,10 +1460,10 @@ export function PassengerRoutesScreen({
           </div>
         )}
 
-        {/* Floating Map Utility Control (GPS) */}
+        {/* Floating Map Utility Controls (GPS + Minimal/Original map toggle) */}
         <aside
           aria-label="Controles del mapa"
-          className="absolute top-2.5 right-2.5 z-20 flex flex-col gap-1.5 transition-all"
+          className="absolute top-2.5 right-2.5 z-20 flex flex-col items-end gap-1.5 transition-all"
         >
           <button
             type="button"
@@ -1473,6 +1476,35 @@ export function PassengerRoutesScreen({
             ) : (
               <LocateFixed className="w-4 h-4 text-[#0D9488]" />
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMinimalMap((prev) => {
+                const next = !prev;
+                setToastMsg(
+                  next
+                    ? 'Mapa limpio: solo rutas seleccionadas y buses'
+                    : 'Mapa original activado'
+                );
+                return next;
+              });
+            }}
+            aria-pressed={minimalMap}
+            aria-label={
+              minimalMap
+                ? 'Cambiar a mapa original con colores y señales'
+                : 'Cambiar a mapa limpio sin colores ni señales'
+            }
+            title={minimalMap ? 'Ver mapa original' : 'Ver mapa limpio'}
+            className={`h-7 px-2.5 rounded-full backdrop-blur-sm shadow-md border text-[10.5px] font-semibold flex items-center gap-1 active:scale-95 transition-all cursor-pointer ${
+              minimalMap
+                ? 'bg-slate-900/90 hover:bg-slate-800 text-white border-slate-700'
+                : 'bg-white/95 hover:bg-slate-50 text-slate-800 border-slate-200'
+            }`}
+          >
+            <Layers className="w-3 h-3 shrink-0" />
+            <span>{minimalMap ? 'Original' : 'Limpio'}</span>
           </button>
         </aside>
 

@@ -1,5 +1,6 @@
 /// <reference types="google.maps" />
 import React, {useEffect, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {
   APILoadingStatus,
   AdvancedMarker,
@@ -31,6 +32,334 @@ import type {
 
 const ATTRIBUTION_IDS = ['gmp_mcp_codeassist_v1_aistudio'];
 const DEMO_MAP_ID = 'DEMO_MAP_ID';
+
+const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
+  {
+    featureType: 'all',
+    elementType: 'all',
+    stylers: [{saturation: -100}],
+  },
+  {
+    featureType: 'landscape',
+    elementType: 'geometry',
+    stylers: [{color: '#f4f6f8'}],
+  },
+  {
+    featureType: 'landscape.man_made',
+    elementType: 'geometry',
+    stylers: [{color: '#edf1f5'}],
+  },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{color: '#dde4ec'}],
+  },
+  {
+    featureType: 'water',
+    elementType: 'labels',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'all',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'transit',
+    elementType: 'all',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'administrative',
+    elementType: 'labels.icon',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'administrative.neighborhood',
+    elementType: 'labels',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'administrative.land_parcel',
+    elementType: 'all',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'administrative.locality',
+    elementType: 'labels.text.fill',
+    stylers: [{color: '#94a3b8'}],
+  },
+  {
+    featureType: 'administrative.locality',
+    elementType: 'labels.text.stroke',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road',
+    elementType: 'labels.icon',
+    stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'labels.text',
+    stylers: [{visibility: 'on'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'labels.text.fill',
+    stylers: [{color: '#64748b'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'labels.text.stroke',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#e2e8f0'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#cbd5e1'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'labels.text.fill',
+    stylers: [{color: '#475569'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'labels.text.stroke',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#e2e8f0'}],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#cbd5e1'}],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'labels.text.fill',
+    stylers: [{color: '#334155'}],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'labels.text.stroke',
+    stylers: [{color: '#ffffff'}],
+  },
+];
+
+interface MapItemMarkerProps {
+  useOverlay: boolean;
+  position: LatLng;
+  zIndex?: number;
+  title?: string;
+  draggable?: boolean;
+  onClick?: () => void;
+  onDragEnd?: (pos: LatLng) => void;
+  children: React.ReactNode;
+}
+
+function HtmlOverlayMarker({
+  position,
+  zIndex = 10,
+  title,
+  draggable = false,
+  onClick,
+  onDragEnd,
+  children,
+}: Omit<MapItemMarkerProps, 'useOverlay'>) {
+  const map = useMap();
+  const mapsLib = useMapsLibrary('maps');
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const positionRef = useRef(position);
+  const overlayRef = useRef<google.maps.OverlayView | null>(null);
+  const onClickRef = useRef(onClick);
+  const onDragEndRef = useRef(onDragEnd);
+
+  onClickRef.current = onClick;
+  onDragEndRef.current = onDragEnd;
+
+  useEffect(() => {
+    positionRef.current = position;
+    overlayRef.current?.draw();
+  }, [position]);
+
+  useEffect(() => {
+    if (containerEl) {
+      containerEl.style.zIndex = String(zIndex);
+    }
+  }, [containerEl, zIndex]);
+
+  useEffect(() => {
+    if (!map || !mapsLib || typeof google === 'undefined' || !google.maps?.OverlayView) {
+      return;
+    }
+
+    const el = document.createElement('div');
+    el.style.position = 'absolute';
+    el.style.transform = 'translate(-50%, -50%)';
+    el.style.zIndex = String(zIndex);
+    el.style.pointerEvents = onClickRef.current || draggable ? 'auto' : 'none';
+    if (title) el.title = title;
+
+    class ReactHtmlOverlay extends google.maps.OverlayView {
+      onAdd() {
+        if (draggable) {
+          google.maps.OverlayView.preventMapHitsAndGesturesFrom(el);
+        } else if (onClickRef.current) {
+          google.maps.OverlayView.preventMapHitsFrom(el);
+        }
+        const panes = this.getPanes();
+        panes?.overlayMouseTarget.appendChild(el);
+        setContainerEl(el);
+      }
+
+      draw() {
+        const proj = this.getProjection();
+        if (!proj) return;
+        const pt = proj.fromLatLngToDivPixel(
+          new google.maps.LatLng(positionRef.current.lat, positionRef.current.lng)
+        );
+        if (pt) {
+          el.style.left = `${pt.x}px`;
+          el.style.top = `${pt.y}px`;
+        }
+      }
+
+      onRemove() {
+        setContainerEl(null);
+        el.remove();
+      }
+    }
+
+    const overlay = new ReactHtmlOverlay();
+    overlay.setMap(map);
+    overlayRef.current = overlay;
+
+    const handleClick = () => {
+      onClickRef.current?.();
+    };
+    el.addEventListener('click', handleClick);
+
+    let dragStartClient: {x: number; y: number} | null = null;
+    let dragStartPixel: {x: number; y: number} | null = null;
+
+    const handlePointerDown = (ev: PointerEvent) => {
+      if (!draggable) return;
+      ev.stopPropagation();
+      el.setPointerCapture(ev.pointerId);
+      dragStartClient = {x: ev.clientX, y: ev.clientY};
+      dragStartPixel = {
+        x: parseFloat(el.style.left || '0'),
+        y: parseFloat(el.style.top || '0'),
+      };
+    };
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (!draggable || !dragStartClient || !dragStartPixel) return;
+      const dx = ev.clientX - dragStartClient.x;
+      const dy = ev.clientY - dragStartClient.y;
+      el.style.left = `${dragStartPixel.x + dx}px`;
+      el.style.top = `${dragStartPixel.y + dy}px`;
+    };
+
+    const handlePointerUp = (ev: PointerEvent) => {
+      if (!draggable || !dragStartClient || !dragStartPixel) return;
+      const dx = ev.clientX - dragStartClient.x;
+      const dy = ev.clientY - dragStartClient.y;
+      const finalPx = new google.maps.Point(dragStartPixel.x + dx, dragStartPixel.y + dy);
+      dragStartClient = null;
+      dragStartPixel = null;
+      const proj = overlay.getProjection();
+      const latLng = proj?.fromDivPixelToLatLng(finalPx);
+      if (latLng) {
+        onDragEndRef.current?.({lat: latLng.lat(), lng: latLng.lng()});
+      }
+    };
+
+    if (draggable) {
+      el.addEventListener('pointerdown', handlePointerDown);
+      el.addEventListener('pointermove', handlePointerMove);
+      el.addEventListener('pointerup', handlePointerUp);
+    }
+
+    return () => {
+      el.removeEventListener('click', handleClick);
+      if (draggable) {
+        el.removeEventListener('pointerdown', handlePointerDown);
+        el.removeEventListener('pointermove', handlePointerMove);
+        el.removeEventListener('pointerup', handlePointerUp);
+      }
+      overlay.setMap(null);
+      overlayRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, mapsLib, title, draggable]);
+
+  if (!containerEl) return null;
+  return createPortal(children, containerEl);
+}
+
+function MapItemMarker({
+  useOverlay,
+  position,
+  zIndex,
+  title,
+  draggable,
+  onClick,
+  onDragEnd,
+  children,
+}: MapItemMarkerProps) {
+  if (useOverlay) {
+    return (
+      <HtmlOverlayMarker
+        position={position}
+        zIndex={zIndex}
+        title={title}
+        draggable={draggable}
+        onClick={onClick}
+        onDragEnd={onDragEnd}
+      >
+        {children}
+      </HtmlOverlayMarker>
+    );
+  }
+
+  return (
+    <AdvancedMarker
+      position={position}
+      zIndex={zIndex}
+      title={title}
+      draggable={draggable}
+      onClick={onClick}
+      onDragEnd={(e) => {
+        if (e.latLng) {
+          onDragEnd?.({lat: e.latLng.lat(), lng: e.latLng.lng()});
+        }
+      }}
+    >
+      {children}
+    </AdvancedMarker>
+  );
+}
 
 export interface NearbyBusMarker {
   id: string;
@@ -302,26 +631,33 @@ function CameraController({
   defaultCenter,
   defaultZoom,
   onCameraSync,
+  onCameraSnapshot,
 }: {
   signal: MapControlSignal | null;
   defaultCenter: LatLng;
   defaultZoom: number;
   onCameraSync?: (zoom: number, isAtDefault: boolean) => void;
+  onCameraSnapshot?: (center: LatLng, zoom: number) => void;
 }) {
   const map = useMap();
   const coreLib = useMapsLibrary('core');
 
   useEffect(() => {
-    if (!map || !onCameraSync) return;
+    if (!map || (!onCameraSync && !onCameraSnapshot)) return;
     const updateSync = () => {
       const z = map.getZoom() ?? defaultZoom;
       const c = map.getCenter();
-      const same =
-        z === defaultZoom &&
-        c != null &&
-        Math.abs(c.lat() - defaultCenter.lat) < 1e-4 &&
-        Math.abs(c.lng() - defaultCenter.lng) < 1e-4;
-      onCameraSync(z, same);
+      if (c && onCameraSnapshot) {
+        onCameraSnapshot({lat: c.lat(), lng: c.lng()}, z);
+      }
+      if (onCameraSync) {
+        const same =
+          z === defaultZoom &&
+          c != null &&
+          Math.abs(c.lat() - defaultCenter.lat) < 1e-4 &&
+          Math.abs(c.lng() - defaultCenter.lng) < 1e-4;
+        onCameraSync(z, same);
+      }
     };
     updateSync();
     const l1 = map.addListener('zoom_changed', updateSync);
@@ -330,7 +666,7 @@ function CameraController({
       l1.remove();
       l2.remove();
     };
-  }, [map, defaultCenter, defaultZoom, onCameraSync]);
+  }, [map, defaultCenter, defaultZoom, onCameraSync, onCameraSnapshot]);
 
   useEffect(() => {
     if (!map || !signal) return;
@@ -427,6 +763,7 @@ interface BarranquillaPassengerMapProps {
   routeFilter: RouteFilter;
   showTrafficLayer: boolean;
   showCorridors: boolean;
+  minimalMap?: boolean;
   busT01Position: LatLng;
   busA12Position: LatLng;
   userPosition: LatLng;
@@ -465,6 +802,7 @@ export function BarranquillaPassengerMap({
   routeFilter,
   showTrafficLayer,
   showCorridors,
+  minimalMap = true,
   busT01Position,
   busA12Position,
   userPosition,
@@ -491,6 +829,10 @@ export function BarranquillaPassengerMap({
   onSelectMapPoi,
 }: BarranquillaPassengerMapProps) {
   const isDraggingRef = useRef(false);
+  const lastCameraRef = useRef<{center: LatLng; zoom: number}>({
+    center: BARRANQUILLA_PASSENGER_CENTER,
+    zoom: 15,
+  });
   const placesLib = useMapsLibrary('places');
 
   const showT01 = showNearbyBuses && (routeFilter === 'all' || routeFilter === 'troncal');
@@ -509,16 +851,18 @@ export function BarranquillaPassengerMap({
     <div className="absolute inset-0 w-full h-full">
       <MapStatusOverlay theme="light" />
       <GoogleMap
+        key={minimalMap ? 'minimal' : 'original'}
         id="baq-passenger-map"
-        mapId={DEMO_MAP_ID}
-        colorScheme="LIGHT"
-        defaultCenter={BARRANQUILLA_PASSENGER_CENTER}
-        defaultZoom={15}
+        mapId={minimalMap ? undefined : DEMO_MAP_ID}
+        colorScheme={minimalMap ? undefined : 'LIGHT'}
+        styles={minimalMap ? MINIMAL_MONOCHROME_MAP_STYLES : undefined}
+        defaultCenter={lastCameraRef.current.center}
+        defaultZoom={lastCameraRef.current.zoom}
         minZoom={11}
         maxZoom={19}
         gestureHandling="greedy"
         disableDefaultUI={true}
-        clickableIcons={!mapPickMode}
+        clickableIcons={!minimalMap && !mapPickMode}
         internalUsageAttributionIds={ATTRIBUTION_IDS}
         onDragstart={() => {
           isDraggingRef.current = true;
@@ -537,6 +881,7 @@ export function BarranquillaPassengerMap({
             });
             return;
           }
+          if (minimalMap) return;
           const placeId = e.detail.placeId;
           if (!placeId || !placesLib || !onSelectMapPoi) return;
           e.stop();
@@ -551,21 +896,25 @@ export function BarranquillaPassengerMap({
           defaultCenter={BARRANQUILLA_PASSENGER_CENTER}
           defaultZoom={15}
           onCameraSync={onCameraSync}
+          onCameraSnapshot={(center, zoom) => {
+            lastCameraRef.current = {center, zoom};
+          }}
         />
         <RoutesBoundsWatcher onBoundsChanged={onBoundsChanged} />
         <TransitCorridorsOverlay
-          visible={showCorridors && catalogRoutes.length === 0 && !selectedCompanyRoute}
+          visible={!minimalMap && showCorridors && catalogRoutes.length === 0 && !selectedCompanyRoute}
           routeFilter={routeFilter}
-          showTraffic={showTrafficLayer}
+          showTraffic={!minimalMap && showTrafficLayer}
         />
         <RoutesCatalogPolylines
           routes={catalogRoutes}
           selectedRouteId={selectedCompanyRoute?.id ?? null}
+          minimalMap={minimalMap}
           onSelectRoute={(route) => onSelectCatalogRoute?.(route)}
         />
         <RadiusCircleOverlay
           center={activeOrigin}
-          radiusMeters={showNearbyBuses ? userRadiusMeters : null}
+          radiusMeters={!minimalMap && showNearbyBuses ? userRadiusMeters : null}
         />
         <TripConnectionOverlay origin={activeOrigin} destination={selectedDestination?.position} />
         <SelectedRouteOverlay
@@ -573,42 +922,45 @@ export function BarranquillaPassengerMap({
           directionMode={routeDirectionMode}
         />
 
-        {/* Clean Station Dots (Primary labeled, secondary compact dots) */}
-        {TRANSIT_STATIONS.map((station) => (
-          <AdvancedMarker
-            key={station.id}
-            position={station.position}
-            zIndex={10}
-            onClick={() => {
-              if (!isDraggingRef.current) onSelectStation(station);
-            }}
-            title={station.name}
-          >
-            <button
-              type="button"
-              className="flex flex-col items-center group cursor-pointer focus:outline-none"
+        {/* Clean Station Dots (hidden in minimal map mode to reduce signals & colors) */}
+        {!minimalMap &&
+          TRANSIT_STATIONS.map((station) => (
+            <MapItemMarker
+              key={station.id}
+              useOverlay={minimalMap}
+              position={station.position}
+              zIndex={10}
+              onClick={() => {
+                if (!isDraggingRef.current) onSelectStation(station);
+              }}
+              title={station.name}
             >
-              {station.isPrimary ? (
-                <>
-                  <div className="w-7 h-7 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-md border-2 border-white group-hover:scale-110 transition-transform">
-                    <Store className="w-3.5 h-3.5" />
+              <button
+                type="button"
+                className="flex flex-col items-center group cursor-pointer focus:outline-none"
+              >
+                {station.isPrimary ? (
+                  <>
+                    <div className="w-7 h-7 rounded-full bg-[#2563EB] text-white flex items-center justify-center shadow-md border-2 border-white group-hover:scale-110 transition-transform">
+                      <Store className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="mt-0.5 px-1.5 py-0.5 rounded bg-white/95 text-slate-900 border border-slate-200 text-[10px] font-semibold shadow-sm whitespace-nowrap">
+                      Est. La Catorce
+                    </span>
+                  </>
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-white text-[#2563EB] flex items-center justify-center shadow border-2 border-[#2563EB] group-hover:scale-125 transition-transform">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
                   </div>
-                  <span className="mt-0.5 px-1.5 py-0.5 rounded bg-white/95 text-slate-900 border border-slate-200 text-[10px] font-semibold shadow-sm whitespace-nowrap">
-                    Est. La Catorce
-                  </span>
-                </>
-              ) : (
-                <div className="w-4 h-4 rounded-full bg-white text-[#2563EB] flex items-center justify-center shadow border-2 border-[#2563EB] group-hover:scale-125 transition-transform">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
-                </div>
-              )}
-            </button>
-          </AdvancedMarker>
-        ))}
+                )}
+              </button>
+            </MapItemMarker>
+          ))}
 
         {/* Live Bus T-01 (Compact crisp marker) */}
         {showT01 && (
-          <AdvancedMarker
+          <MapItemMarker
+            useOverlay={minimalMap}
             position={busT01Position}
             zIndex={60}
             onClick={() => {
@@ -618,18 +970,21 @@ export function BarranquillaPassengerMap({
           >
             <button
               type="button"
-              className="px-2 py-1 rounded-full bg-[#2563EB] text-white shadow-lg border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none"
+              className={`px-2 py-1 rounded-full text-white shadow-lg border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
+                minimalMap ? 'bg-slate-900' : 'bg-[#2563EB]'
+              }`}
             >
               <Bus className="w-3.5 h-3.5" />
               <span className="font-headline text-[10px] font-bold">T-01</span>
-              <span className="font-mono text-[10px] text-blue-100">2m</span>
+              <span className="font-mono text-[10px] text-slate-200">2m</span>
             </button>
-          </AdvancedMarker>
+          </MapItemMarker>
         )}
 
         {/* Live Bus A-12 (Compact crisp marker) */}
         {showA12 && (
-          <AdvancedMarker
+          <MapItemMarker
+            useOverlay={minimalMap}
             position={busA12Position}
             zIndex={50}
             onClick={() => {
@@ -639,19 +994,22 @@ export function BarranquillaPassengerMap({
           >
             <button
               type="button"
-              className="px-2 py-1 rounded-full bg-[#16A34A] text-white shadow-md border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none"
+              className={`px-2 py-1 rounded-full text-white shadow-md border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
+                minimalMap ? 'bg-slate-800' : 'bg-[#16A34A]'
+              }`}
             >
               <Bus className="w-3 h-3" />
               <span className="font-headline text-[10px] font-bold">A-12</span>
-              <span className="font-mono text-[10px] text-emerald-100">6m</span>
+              <span className="font-mono text-[10px] text-slate-200">6m</span>
             </button>
-          </AdvancedMarker>
+          </MapItemMarker>
         )}
 
         {/* Compact Nearby Company Buses (Top 5 closest to avoid map clutter) */}
         {visibleNearbyMarkers.map((bus) => (
-          <AdvancedMarker
+          <MapItemMarker
             key={bus.id}
+            useOverlay={minimalMap}
             position={bus.position}
             zIndex={55}
             onClick={() => {
@@ -663,15 +1021,19 @@ export function BarranquillaPassengerMap({
               type="button"
               className="px-1.5 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 shadow-md border border-slate-300 flex items-center gap-1 cursor-pointer hover:scale-105 transition-all focus:outline-none"
             >
-              <Bus className="w-3 h-3 text-[#0D9488]" />
+              <Bus className={`w-3 h-3 ${minimalMap ? 'text-slate-700' : 'text-[#0D9488]'}`} />
               <span className="font-headline text-[10px] font-bold whitespace-nowrap">
                 {bus.code}
               </span>
-              <span className="font-mono text-[9px] text-emerald-700 font-bold">
+              <span
+                className={`font-mono text-[9px] font-bold ${
+                  minimalMap ? 'text-slate-600' : 'text-emerald-700'
+                }`}
+              >
                 {bus.etaMinutes}m
               </span>
             </button>
-          </AdvancedMarker>
+          </MapItemMarker>
         ))}
 
         {/* Live Buses Traveling Along Filtered / Selected Routes (3 to 6 buses per route) */}
@@ -690,8 +1052,9 @@ export function BarranquillaPassengerMap({
               : 'Recorrido';
 
           return (
-            <AdvancedMarker
+            <MapItemMarker
               key={bus.id}
+              useOverlay={minimalMap}
               position={bus.position}
               zIndex={65}
               onClick={() => {
@@ -712,102 +1075,125 @@ export function BarranquillaPassengerMap({
                   #{bus.unitNumber}
                 </span>
               </button>
-            </AdvancedMarker>
+            </MapItemMarker>
           );
         })}
 
-        {/* Selected Bus Company Route Endpoints & Badge (rutaquilla.me style) */}
+        {/* Selected Bus Company Route Endpoints & Badge */}
         {selectedCompanyRoute && (
           <>
-            <AdvancedMarker
+            <MapItemMarker
+              useOverlay={minimalMap}
               position={selectedCompanyRoute.startPoint.position}
               zIndex={76}
               title={`Inicio: ${selectedCompanyRoute.startPoint.name}`}
             >
-              <div className="flex flex-col items-center">
-                <span className="px-2 py-0.5 rounded-full bg-[#16A34A] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
-                  Inicio · {selectedCompanyRoute.startPoint.name}
-                </span>
-              </div>
-            </AdvancedMarker>
-            <AdvancedMarker
+              {minimalMap ? (
+                <div className="w-3.5 h-3.5 rounded-full bg-slate-900 border-2 border-white shadow-md" />
+              ) : (
+                <div className="flex flex-col items-center">
+                  <span className="px-2 py-0.5 rounded-full bg-[#16A34A] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
+                    Inicio · {selectedCompanyRoute.startPoint.name}
+                  </span>
+                </div>
+              )}
+            </MapItemMarker>
+            <MapItemMarker
+              useOverlay={minimalMap}
               position={selectedCompanyRoute.endPoint.position}
               zIndex={76}
               title={`Retorno: ${selectedCompanyRoute.endPoint.name}`}
             >
-              <div className="flex flex-col items-center">
-                <span className="px-2 py-0.5 rounded-full bg-[#DC2626] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
-                  Retorno · {selectedCompanyRoute.endPoint.name}
-                </span>
-              </div>
-            </AdvancedMarker>
-            <AdvancedMarker
-              position={selectedCompanyRoute.center}
-              zIndex={75}
-              title={`${selectedCompanyRoute.company} · ${selectedCompanyRoute.name}`}
-            >
-              <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
-                <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span className="font-headline text-xs font-bold whitespace-nowrap">
-                  {selectedCompanyRoute.code}
-                </span>
-                <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
-                  · {selectedCompanyRoute.company}
-                </span>
-              </div>
-            </AdvancedMarker>
+              {minimalMap ? (
+                <div className="w-3.5 h-3.5 rounded-full bg-slate-500 border-2 border-white shadow-md" />
+              ) : (
+                <div className="flex flex-col items-center">
+                  <span className="px-2 py-0.5 rounded-full bg-[#DC2626] text-white text-[10px] font-bold shadow-md border border-white whitespace-nowrap max-w-[140px] truncate">
+                    Retorno · {selectedCompanyRoute.endPoint.name}
+                  </span>
+                </div>
+              )}
+            </MapItemMarker>
+            {!minimalMap && (
+              <MapItemMarker
+                useOverlay={minimalMap}
+                position={selectedCompanyRoute.center}
+                zIndex={75}
+                title={`${selectedCompanyRoute.company} · ${selectedCompanyRoute.name}`}
+              >
+                <div className="px-2.5 py-1 rounded-lg bg-slate-900 text-white shadow-xl border-2 border-white flex items-center gap-1.5">
+                  <Bus className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                  <span className="font-headline text-xs font-bold whitespace-nowrap">
+                    {selectedCompanyRoute.code}
+                  </span>
+                  <span className="text-[10px] text-teal-300 font-medium whitespace-nowrap">
+                    · {selectedCompanyRoute.company}
+                  </span>
+                </div>
+              </MapItemMarker>
+            )}
           </>
         )}
 
         {/* Custom Origin Marker (Punto de partida) */}
         {originMarker && (
-          <AdvancedMarker
+          <MapItemMarker
+            useOverlay={minimalMap}
             position={originMarker.position}
             zIndex={78}
             title={`Partida: ${originMarker.name}`}
           >
             <div className="flex flex-col items-center">
-              <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg border-2 border-white">
+              <div
+                className={`w-7 h-7 rounded-full text-white flex items-center justify-center shadow-lg border-2 border-white ${
+                  minimalMap ? 'bg-slate-800' : 'bg-emerald-600'
+                }`}
+              >
                 <Navigation className="w-3.5 h-3.5" />
               </div>
-              <span className="mt-0.5 px-2 py-0.5 rounded bg-emerald-700 text-white text-[10px] font-bold shadow border border-white max-w-[140px] truncate">
+              <span
+                className={`mt-0.5 px-2 py-0.5 rounded text-white text-[10px] font-bold shadow border border-white max-w-[140px] truncate ${
+                  minimalMap ? 'bg-slate-800' : 'bg-emerald-700'
+                }`}
+              >
                 A · {originMarker.name}
               </span>
             </div>
-          </AdvancedMarker>
+          </MapItemMarker>
         )}
 
         {/* Selected Search Destination Pin */}
         {selectedDestination && (
-          <AdvancedMarker
+          <MapItemMarker
+            useOverlay={minimalMap}
             position={selectedDestination.position}
             zIndex={82}
             title={`Destino: ${selectedDestination.name}`}
           >
             <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center shadow-xl border-2 border-white">
+              <div
+                className={`w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center shadow-xl border-2 border-white ${
+                  minimalMap ? 'text-white' : 'text-teal-400'
+                }`}
+              >
                 <MapPin className="w-4 h-4" />
               </div>
               <span className="mt-0.5 px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-semibold shadow-lg border border-slate-700 max-w-[155px] truncate">
                 B · {selectedDestination.name}
               </span>
             </div>
-          </AdvancedMarker>
+          </MapItemMarker>
         )}
 
         {/* Interactive Map Pin Picker (draggable) */}
         {mapPickMode && draftPickPosition && (
-          <AdvancedMarker
+          <MapItemMarker
+            useOverlay={minimalMap}
             position={draftPickPosition}
             zIndex={95}
             draggable={true}
-            onDragEnd={(e) => {
-              if (e.latLng) {
-                onPickMapCoordinate?.({
-                  lat: e.latLng.lat(),
-                  lng: e.latLng.lng(),
-                });
-              }
+            onDragEnd={(pos) => {
+              onPickMapCoordinate?.(pos);
             }}
             title={
               mapPickMode === 'origin'
@@ -842,16 +1228,22 @@ export function BarranquillaPassengerMap({
                 </div>
               </div>
             </div>
-          </AdvancedMarker>
+          </MapItemMarker>
         )}
 
-        {/* User Current Location (Clean blue-teal beacon) */}
-        <AdvancedMarker position={userPosition} zIndex={70} title="Tu ubicación GPS">
+        {/* User Current Location */}
+        <MapItemMarker useOverlay={minimalMap} position={userPosition} zIndex={70} title="Tu ubicación GPS">
           <div className="relative flex items-center justify-center pointer-events-none">
-            <span className="w-7 h-7 rounded-full bg-[#0D9488]/25 animate-ping absolute" />
-            <div className="w-4 h-4 rounded-full bg-[#0D9488] border-2 border-white shadow-md" />
+            {!minimalMap && (
+              <span className="w-7 h-7 rounded-full bg-[#0D9488]/25 animate-ping absolute" />
+            )}
+            <div
+              className={`w-3.5 h-3.5 rounded-full border-2 border-white shadow-md ${
+                minimalMap ? 'bg-slate-700' : 'bg-[#0D9488]'
+              }`}
+            />
           </div>
-        </AdvancedMarker>
+        </MapItemMarker>
       </GoogleMap>
     </div>
   );
@@ -898,10 +1290,12 @@ function RoutesBoundsWatcher({
 function RoutesCatalogPolylines({
   routes,
   selectedRouteId,
+  minimalMap = false,
   onSelectRoute,
 }: {
   routes: CompanyRouteItem[];
   selectedRouteId?: string | null;
+  minimalMap?: boolean;
   onSelectRoute: (route: CompanyRouteItem) => void;
 }) {
   const map = useMap();
@@ -909,6 +1303,7 @@ function RoutesCatalogPolylines({
 
   useEffect(() => {
     if (!map || !mapsLib) return;
+    if (minimalMap && selectedRouteId) return;
 
     const polylines: google.maps.Polyline[] = [];
     const useCasing = !selectedRouteId && routes.length <= 40;
@@ -959,7 +1354,7 @@ function RoutesCatalogPolylines({
         poly.setMap(null);
       }
     };
-  }, [map, mapsLib, routes, selectedRouteId, onSelectRoute]);
+  }, [map, mapsLib, routes, selectedRouteId, minimalMap, onSelectRoute]);
 
   return null;
 }
