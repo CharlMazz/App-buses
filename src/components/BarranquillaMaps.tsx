@@ -43,17 +43,17 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'landscape',
     elementType: 'geometry',
-    stylers: [{color: '#e5e9f0'}],
+    stylers: [{color: '#e6e6e6'}],
   },
   {
     featureType: 'landscape.man_made',
     elementType: 'geometry',
-    stylers: [{color: '#dce2ea'}],
+    stylers: [{color: '#dcdcdc'}],
   },
   {
     featureType: 'water',
     elementType: 'geometry',
-    stylers: [{color: '#c7d3e0'}],
+    stylers: [{color: '#c4c4c4'}],
   },
   {
     featureType: 'water',
@@ -68,7 +68,7 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'poi.park',
     elementType: 'geometry',
-    stylers: [{visibility: 'on'}, {color: '#d7dfe6'}],
+    stylers: [{visibility: 'on'}, {color: '#d4d4d4'}],
   },
   {
     featureType: 'transit',
@@ -93,7 +93,7 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'administrative.locality',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#64748b'}],
+    stylers: [{color: '#525252'}],
   },
   {
     featureType: 'administrative.locality',
@@ -113,7 +113,7 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.local',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#475569'}],
+    stylers: [{color: '#404040'}],
   },
   {
     featureType: 'road.local',
@@ -128,7 +128,7 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.local',
     elementType: 'geometry.stroke',
-    stylers: [{color: '#cbd5e1'}],
+    stylers: [{color: '#c8c8c8'}],
   },
   {
     featureType: 'road.arterial',
@@ -143,12 +143,12 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.arterial',
     elementType: 'geometry.stroke',
-    stylers: [{color: '#94a3b8'}],
+    stylers: [{color: '#999999'}],
   },
   {
     featureType: 'road.arterial',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#1e293b'}],
+    stylers: [{color: '#262626'}],
   },
   {
     featureType: 'road.arterial',
@@ -163,17 +163,17 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.highway',
     elementType: 'geometry.fill',
-    stylers: [{color: '#f8fafc'}],
+    stylers: [{color: '#f7f7f7'}],
   },
   {
     featureType: 'road.highway',
     elementType: 'geometry.stroke',
-    stylers: [{color: '#64748b'}],
+    stylers: [{color: '#666666'}],
   },
   {
     featureType: 'road.highway',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#0f172a'}],
+    stylers: [{color: '#171717'}],
   },
   {
     featureType: 'road.highway',
@@ -183,12 +183,12 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.highway.controlled_access',
     elementType: 'geometry.fill',
-    stylers: [{color: '#f1f5f9'}],
+    stylers: [{color: '#f0f0f0'}],
   },
   {
     featureType: 'road.highway.controlled_access',
     elementType: 'geometry.stroke',
-    stylers: [{color: '#475569'}],
+    stylers: [{color: '#525252'}],
   },
 ];
 
@@ -878,14 +878,14 @@ export function BarranquillaPassengerMap({
   }, [showNearbyBuses, nearbyBuses, selectedCompanyRoute]);
 
   return (
-    <div className="absolute inset-0 w-full h-full">
+    <div className={`absolute inset-0 w-full h-full ${minimalMap ? 'baq-minimal-map' : ''}`}>
       <MapStatusOverlay theme="light" />
       <GoogleMap
         key={minimalMap ? 'minimal' : 'original'}
         mapId={minimalMap ? undefined : DEMO_MAP_ID}
         renderingType={minimalMap ? RenderingType.RASTER : undefined}
         mapTypeId="roadmap"
-        backgroundColor={minimalMap ? '#E5E9F0' : '#E8ECEF'}
+        backgroundColor={minimalMap ? '#E6E6E6' : '#E8ECEF'}
         colorScheme={minimalMap ? undefined : 'LIGHT'}
         styles={minimalMap ? MINIMAL_MONOCHROME_MAP_STYLES : undefined}
         defaultCenter={lastCameraRef.current.center}

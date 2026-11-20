@@ -45,3 +45,7 @@
     animation: none !important;
   }
 }
+
+.baq-minimal-map .gm-style img[src*="maps/vt"] {
+  filter: grayscale(100%) contrast(1.06);
+}
