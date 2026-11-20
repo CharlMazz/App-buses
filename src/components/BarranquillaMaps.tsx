@@ -445,6 +445,9 @@ interface BarranquillaPassengerMapProps {
   userRadiusMeters?: number | null;
   nearbyBuses?: NearbyBusMarker[];
   signal: MapControlSignal | null;
+  mapPickMode?: 'origin' | 'destination' | null;
+  draftPickPosition?: LatLng | null;
+  onPickMapCoordinate?: (pos: LatLng) => void;
   onCameraSync?: (zoom: number, isAtDefault: boolean) => void;
   onBoundsChanged?: (bounds: MapBounds) => void;
   onSelectCatalogRoute?: (route: CompanyRouteItem) => void;
@@ -469,6 +472,9 @@ export function BarranquillaPassengerMap({
   userRadiusMeters,
   nearbyBuses = [],
   signal,
+  mapPickMode = null,
+  draftPickPosition = null,
+  onPickMapCoordinate,
   onCameraSync,
   onBoundsChanged,
   onSelectCatalogRoute,
@@ -504,6 +510,7 @@ export function BarranquillaPassengerMap({
         maxZoom={19}
         gestureHandling="greedy"
         disableDefaultUI={true}
+        clickableIcons={!mapPickMode}
         internalUsageAttributionIds={ATTRIBUTION_IDS}
         onDragstart={() => {
           isDraggingRef.current = true;
@@ -514,6 +521,14 @@ export function BarranquillaPassengerMap({
           }, 80);
         }}
         onClick={(e) => {
+          if (mapPickMode && e.detail.latLng) {
+            e.stop();
+            onPickMapCoordinate?.({
+              lat: e.detail.latLng.lat,
+              lng: e.detail.latLng.lng,
+            });
+            return;
+          }
           const placeId = e.detail.placeId;
           if (!placeId || !placesLib || !onSelectMapPoi) return;
           e.stop();
@@ -723,6 +738,56 @@ export function BarranquillaPassengerMap({
               <span className="mt-0.5 px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-semibold shadow-lg border border-slate-700 max-w-[155px] truncate">
                 B · {selectedDestination.name}
               </span>
+            </div>
+          </AdvancedMarker>
+        )}
+
+        {/* Interactive Map Pin Picker (draggable) */}
+        {mapPickMode && draftPickPosition && (
+          <AdvancedMarker
+            position={draftPickPosition}
+            zIndex={95}
+            draggable={true}
+            onDragEnd={(e) => {
+              if (e.latLng) {
+                onPickMapCoordinate?.({
+                  lat: e.latLng.lat(),
+                  lng: e.latLng.lng(),
+                });
+              }
+            }}
+            title={
+              mapPickMode === 'origin'
+                ? 'Arrastra para fijar tu punto de recogida'
+                : 'Arrastra para fijar tu destino'
+            }
+          >
+            <div className="flex flex-col items-center cursor-grab active:cursor-grabbing">
+              <span
+                className={`mb-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-lg border border-white whitespace-nowrap ${
+                  mapPickMode === 'origin' ? 'bg-emerald-600' : 'bg-[#0D9488]'
+                }`}
+              >
+                {mapPickMode === 'origin' ? 'A · Recogida (Arrastra)' : 'B · Destino (Arrastra)'}
+              </span>
+              <div className="relative flex items-center justify-center">
+                <span
+                  className={`w-11 h-11 rounded-full animate-ping absolute opacity-35 ${
+                    mapPickMode === 'origin' ? 'bg-emerald-500' : 'bg-[#0D9488]'
+                  }`}
+                />
+                <div
+                  className={`w-9 h-9 rounded-full text-white flex items-center justify-center shadow-2xl border-[3px] border-white ${
+                    mapPickMode === 'origin' ? 'bg-emerald-600' : 'bg-slate-900'
+                  }`}
+                >
+                  {mapPickMode === 'origin' ? (
+                    <Navigation className="w-4 h-4" />
+                  ) : (
+                    <MapPin className="w-4 h-4 text-teal-400" />
+                  )}
+                </div>
+              </div>
             </div>
           </AdvancedMarker>
         )}

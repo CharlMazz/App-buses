@@ -13,6 +13,7 @@ import {
   MapPin,
   Maximize2,
   Megaphone,
+  Menu,
   Minimize2,
   PieChart,
   Route,
@@ -53,6 +54,7 @@ export function OperatorDashboardScreen({
   onNavigate,
 }: OperatorDashboardScreenProps) {
   const [activeNav, setActiveNav] = useState<OperatorNavTab>('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tableSearch, setTableSearch] = useState('');
   const [routeFilter, setRouteFilter] = useState<'all' | 'troncal' | 'alimentador' | 'expreso'>('all');
   const [mapFullscreen, setMapFullscreen] = useState(false);
@@ -144,24 +146,45 @@ export function OperatorDashboardScreen({
 
   return (
     <div className="relative w-full h-full bg-slate-900 text-slate-100 flex overflow-hidden">
-      {/* Desktop Enterprise Sidebar Navigation */}
+      {/* Tablet / Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div
+          aria-hidden="true"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-xs lg:hidden"
+        />
+      )}
+
+      {/* Enterprise Sidebar Navigation (Persistent on lg/desktop, slide-out drawer on tablet/mobile) */}
       <aside
         aria-label="Navegación del Centro de Control"
-        className="hidden md:flex w-64 bg-slate-950 border-r border-slate-800 flex-col justify-between shrink-0 overflow-y-auto pb-20"
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between shrink-0 overflow-y-auto pb-20 transition-transform duration-200 lg:static lg:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         <div>
-          <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-[12px] bg-[#0D9488] flex items-center justify-center text-white shadow-md">
-              <Bus className="w-5 h-5" />
+          <div className="p-5 border-b border-slate-800 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-[12px] bg-[#0D9488] flex items-center justify-center text-white shadow-md">
+                <Bus className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="font-headline text-base font-bold text-white tracking-tight">
+                  APP BUSES
+                </span>
+                <p className="font-mono text-[11px] text-teal-400 tracking-wider font-semibold">
+                  OPS CONTROL • BAQ
+                </p>
+              </div>
             </div>
-            <div>
-              <span className="font-headline text-base font-bold text-white tracking-tight">
-                APP BUSES
-              </span>
-              <p className="font-mono text-[11px] text-teal-400 tracking-wider font-semibold">
-                OPS CONTROL • BAQ
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Cerrar menú lateral"
+              className="lg:hidden p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
           <nav className="p-3 space-y-1 text-sm font-medium">
@@ -173,6 +196,7 @@ export function OperatorDashboardScreen({
                   type="button"
                   onClick={() => {
                     setActiveNav(item.id);
+                    setSidebarOpen(false);
                     if (item.id === 'fleet') {
                       document.getElementById('fleetMapSection')?.scrollIntoView({behavior: 'smooth'});
                     } else if (item.id === 'incidents') {
@@ -251,8 +275,16 @@ export function OperatorDashboardScreen({
       {/* Main Work Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto pb-20">
         {/* Top Action Bar */}
-        <header className="min-h-16 px-4 md:px-8 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20">
-          <div className="flex items-center gap-3 flex-wrap">
+        <header className="min-h-16 px-4 md:px-6 lg:px-8 py-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-20">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Abrir menú del Centro de Control"
+              className="lg:hidden p-2 rounded-md bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
             <h1 className="font-headline text-base md:text-lg text-white font-bold">
               Monitoreo de Transporte Metropolitano
             </h1>
@@ -266,7 +298,7 @@ export function OperatorDashboardScreen({
             <button
               type="button"
               onClick={() => onNavigate('rutas')}
-              className="md:hidden px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-semibold"
+              className="lg:hidden px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-semibold"
             >
               Volver a Pasajero
             </button>
@@ -289,11 +321,11 @@ export function OperatorDashboardScreen({
         </header>
 
         {/* Main Dashboard Content Grid */}
-        <main className="p-4 md:p-8 space-y-6">
+        <main className="p-4 md:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto w-full">
           {/* KPI Summary Cards Row */}
           <section
             aria-label="Métricas Principales de Operación"
-            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
           >
             <article className="p-5 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
               <div className="flex items-center justify-between text-xs text-slate-400">
@@ -369,7 +401,7 @@ export function OperatorDashboardScreen({
             <div
               id="fleetMapSection"
               className={`bg-slate-950 rounded-lg border border-slate-800 p-5 space-y-4 ${
-                mapFullscreen ? 'col-span-12' : 'col-span-12 xl:col-span-8'
+                mapFullscreen ? 'col-span-12' : 'col-span-12 lg:col-span-7 xl:col-span-8'
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -443,7 +475,7 @@ export function OperatorDashboardScreen({
             <div
               id="incidentsSection"
               className={`bg-slate-950 rounded-lg border border-slate-800 p-5 space-y-4 ${
-                mapFullscreen ? 'col-span-12' : 'col-span-12 xl:col-span-4'
+                mapFullscreen ? 'col-span-12' : 'col-span-12 lg:col-span-5 xl:col-span-4'
               }`}
             >
               <div className="flex items-center justify-between">

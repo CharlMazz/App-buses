@@ -82,10 +82,12 @@ export function PassengerBottomNav({
     destQuery,
     selectedDestination,
     userPosition,
+    reopenTripNonce,
     setOriginQuery,
     setOriginMarker,
     setDestQuery,
     setSelectedDestination,
+    setMapPickTarget,
     onUpdateUserPosition,
     onFocusMap,
     onTripSubmitted,
@@ -99,6 +101,30 @@ export function PassengerBottomNav({
       window.setTimeout(() => destInputRef.current?.focus(), 60);
     }
   }, [externalOpenNonce]);
+
+  useEffect(() => {
+    if (reopenTripNonce > 0) {
+      setSearchOpen(true);
+      setActiveField(null);
+    }
+  }, [reopenTripNonce]);
+
+  const handleStartMapPick = useCallback(
+    (target: 'origin' | 'destination') => {
+      setSearchOpen(false);
+      setActiveField(null);
+      setMapPickTarget(target);
+      if (currentScreen !== 'rutas') {
+        onNavigate('rutas');
+      }
+      onToast(
+        target === 'origin'
+          ? 'Toca el mapa o arrastra el pin para elegir recogida'
+          : 'Toca el mapa o arrastra el pin para elegir destino'
+      );
+    },
+    [currentScreen, onNavigate, onToast, setMapPickTarget]
+  );
 
   const autocompleteQuery =
     activeField === 'origin'
@@ -285,8 +311,8 @@ export function PassengerBottomNav({
     const trimmedOrigin = originQuery.trim();
     const trimmedDest = destQuery.trim();
 
-    if (!trimmedDest && !selectedDestination && !originMarker) {
-      onToast('Ingresa tu destino en Barranquilla para buscar');
+    if (!trimmedDest && !selectedDestination) {
+      onToast('Ingresa o elige tu destino en Barranquilla para buscar rutas');
       setActiveField('destination');
       destInputRef.current?.focus();
       return;
@@ -325,14 +351,27 @@ export function PassengerBottomNav({
       }
     }
 
+    if (needsOriginResolve && !resolvedOrigin) {
+      onToast('No se encontró ese punto de partida. Elige una sugerencia o pin en el mapa.');
+      setActiveField('origin');
+      return;
+    }
+
     if (needsDestResolve && !resolvedDest) {
-      onToast('No se encontró ese destino en Barranquilla. Elige una sugerencia.');
+      onToast('No se encontró ese destino en Barranquilla. Elige una sugerencia o pin.');
       setActiveField('destination');
       destInputRef.current?.focus();
       return;
     }
 
-    const focusTarget = resolvedDest?.position ?? resolvedOrigin?.position ?? userPosition;
+    if (!resolvedDest) {
+      onToast('Selecciona un destino válido para calcular las rutas');
+      setActiveField('destination');
+      destInputRef.current?.focus();
+      return;
+    }
+
+    const focusTarget = resolvedDest.position;
     onFocusMap(focusTarget, 15);
     onTripSubmitted();
     resetSession();
@@ -342,13 +381,8 @@ export function PassengerBottomNav({
       onNavigate('rutas');
     }
 
-    if (resolvedDest) {
-      onToast(`Rutas hacia ${resolvedDest.name}`);
-    } else if (resolvedOrigin) {
-      onToast(`Rutas desde ${resolvedOrigin.name}`);
-    } else {
-      onToast('Mostrando buses cercanos a tu ubicación');
-    }
+    const originLabel = resolvedOrigin?.name ?? 'tu ubicación';
+    onToast(`Buscando rutas de ${originLabel} a ${resolvedDest.name}`);
   };
 
   const showDropdown =
@@ -371,12 +405,13 @@ export function PassengerBottomNav({
         aria-label="Navegación principal"
         className={`${positionClass} z-40 bg-white border-t border-slate-200 px-3 pt-1.5 pb-2.5 shadow-[0_-4px_20px_rgba(15,23,42,0.08)]`}
       >
-        {/* Pickup & Destination Search Overlay anchored above the + button and Bottom Bar */}
-        {searchOpen && (
-          <div
-            ref={searchCardRef}
-            className="absolute left-2.5 right-2.5 bottom-full mb-20 z-50 max-w-lg mx-auto"
-          >
+        <div className="max-w-3xl mx-auto relative">
+          {/* Pickup & Destination Search Overlay anchored above the Bottom Bar */}
+          {searchOpen && (
+            <div
+              ref={searchCardRef}
+              className="absolute left-0 right-0 bottom-full mb-3 z-50 max-w-lg mx-auto"
+            >
             {/* Places Autocomplete Dropdown opening upward above the search card */}
             {showDropdown && (
               <div
@@ -384,6 +419,20 @@ export function PassengerBottomNav({
                 aria-label="Sugerencias de lugares"
                 className="mb-1.5 bg-white rounded-[12px] shadow-2xl border border-slate-200 overflow-hidden max-h-[38vh] overflow-y-auto divide-y divide-slate-100"
               >
+                {activeField && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handleStartMapPick(activeField)}
+                    className="w-full px-3.5 py-2.5 text-left flex items-center gap-2.5 bg-slate-50 hover:bg-teal-50/70 transition-colors"
+                  >
+                    <MapPin className="w-4 h-4 text-[#0D9488] shrink-0" />
+                    <span className="text-xs font-semibold text-slate-900">
+                      Seleccionar {activeField === 'origin' ? 'recogida' : 'destino'} con pin en el mapa
+                    </span>
+                  </button>
+                )}
+
                 {activeField === 'origin' && (
                   <button
                     type="button"
@@ -609,6 +658,22 @@ export function PassengerBottomNav({
                 </button>
               </div>
 
+              {/* Select Pin on Map Option */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleStartMapPick(activeField ?? 'destination')}
+                  className="flex-1 h-8 px-2.5 rounded-[8px] bg-teal-50/90 hover:bg-teal-100 text-[#0D9488] border border-teal-200/80 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <MapPin className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {activeField === 'origin'
+                      ? 'Elegir recogida con pin en el mapa'
+                      : 'Elegir pin en el mapa'}
+                  </span>
+                </button>
+              </div>
+
               <button
                 type="button"
                 disabled={isResolvingPlace}
@@ -632,39 +697,7 @@ export function PassengerBottomNav({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => {
-            onCloseRoutesSearch?.();
-            setSearchOpen((open) => {
-              const next = !open;
-              if (next) {
-                setActiveField('destination');
-                window.setTimeout(() => destInputRef.current?.focus(), 60);
-              } else {
-                setActiveField(null);
-              }
-              return next;
-            });
-          }}
-          aria-expanded={searchOpen}
-          aria-label={
-            searchOpen
-              ? 'Cerrar búsqueda de recogida y destino'
-              : 'Ingresar lugar de recogida y destino'
-          }
-          className={`absolute bottom-full right-3 mb-3 z-40 w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg border-[3px] border-white active:scale-95 transition-all cursor-pointer ${
-            searchOpen ? 'bg-slate-900' : 'bg-[#0D9488] hover:bg-teal-700'
-          }`}
-        >
-          <Plus
-            className={`w-6 h-6 transition-transform duration-200 ${
-              searchOpen ? 'rotate-45' : ''
-            }`}
-          />
-        </button>
-
-        <ul className="flex items-center justify-between max-w-lg mx-auto gap-1">
+        <ul className="flex items-center justify-between max-w-2xl mx-auto gap-0.5 sm:gap-4">
           <li className="flex-1 flex justify-center">
             <button
               type="button"
@@ -687,7 +720,7 @@ export function PassengerBottomNav({
                     : 'Abrir menú lateral de filtro de rutas'
                   : 'Ir a Rutas'
               }
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-3 rounded-xl transition-colors ${
+              className={`min-h-[48px] flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-3 rounded-xl transition-colors ${
                 currentScreen === 'rutas'
                   ? routesSearchOpen
                     ? 'bg-teal-50 text-[#0D9488] font-semibold'
@@ -696,7 +729,45 @@ export function PassengerBottomNav({
               }`}
             >
               <Route className="w-5 h-5" />
-              <span className="text-[11px]">Rutas</span>
+              <span className="text-[11px] sm:text-xs whitespace-nowrap">Rutas</span>
+            </button>
+          </li>
+          <li className="flex-1 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                onCloseRoutesSearch?.();
+                setSearchOpen((open) => {
+                  const next = !open;
+                  if (next) {
+                    setActiveField('destination');
+                    window.setTimeout(() => destInputRef.current?.focus(), 60);
+                  } else {
+                    setActiveField(null);
+                  }
+                  return next;
+                });
+              }}
+              aria-expanded={searchOpen}
+              aria-label={
+                searchOpen
+                  ? 'Cerrar búsqueda de recogida y destino'
+                  : 'Planificar viaje: lugar de recogida y destino'
+              }
+              className={`min-h-[48px] flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-3 rounded-xl transition-colors cursor-pointer ${
+                searchOpen
+                  ? 'bg-teal-50 text-[#0D9488] font-semibold'
+                  : originMarker || selectedDestination
+                  ? 'text-[#0D9488] font-medium'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Plus
+                className={`w-5 h-5 transition-transform duration-200 ${
+                  searchOpen ? 'rotate-45' : ''
+                }`}
+              />
+              <span className="text-[11px] sm:text-xs whitespace-nowrap">Viaje</span>
             </button>
           </li>
           <li className="flex-1 flex justify-center">
@@ -707,14 +778,14 @@ export function PassengerBottomNav({
                 if (currentScreen !== 'qr') onNavigate('qr');
               }}
               aria-current={currentScreen === 'qr' ? 'page' : undefined}
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
+              className={`min-h-[48px] flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-3 rounded-xl transition-colors ${
                 currentScreen === 'qr'
                   ? 'text-[#0D9488] font-medium'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <QrCode className="w-5 h-5" />
-              <span className="text-[11px]">Ticket QR</span>
+              <span className="text-[11px] sm:text-xs whitespace-nowrap">Ticket QR</span>
             </button>
           </li>
           <li className="flex-1 flex justify-center">
@@ -725,14 +796,14 @@ export function PassengerBottomNav({
                 if (currentScreen !== 'billetera') onNavigate('billetera');
               }}
               aria-current={currentScreen === 'billetera' ? 'page' : undefined}
-              className={`min-h-[48px] flex flex-col items-center justify-center gap-0.5 px-2 transition-colors ${
+              className={`min-h-[48px] flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-3 rounded-xl transition-colors ${
                 currentScreen === 'billetera'
                   ? 'text-[#0D9488] font-medium'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
             >
               <Wallet className="w-5 h-5" />
-              <span className="text-[11px]">Billetera</span>
+              <span className="text-[11px] sm:text-xs whitespace-nowrap">Billetera</span>
             </button>
           </li>
           <li className="flex-1 flex justify-center">
@@ -742,13 +813,14 @@ export function PassengerBottomNav({
                 closeSearch();
                 setShowProfileModal(true);
               }}
-              className="min-h-[48px] flex flex-col items-center justify-center gap-0.5 text-slate-500 hover:text-slate-900 px-2"
+              className="min-h-[48px] flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 text-slate-500 hover:text-slate-900 px-1.5 sm:px-3 rounded-xl"
             >
               <User className="w-5 h-5" />
-              <span className="text-[11px]">Perfil</span>
+              <span className="text-[11px] sm:text-xs whitespace-nowrap">Perfil</span>
             </button>
           </li>
         </ul>
+        </div>
       </nav>
 
       {/* Passenger Profile & Roles Modal */}

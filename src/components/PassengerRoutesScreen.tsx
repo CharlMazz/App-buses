@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useMapsLibrary} from '@vis.gl/react-google-maps';
 import {
+  ArrowRight,
   Bus,
   Check,
   CheckCircle2,
@@ -55,6 +56,7 @@ import {
 } from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
 import {PWAInstallButton} from './PWAInstallButton';
+import {findTripRoutes} from '../utils/tripRouteMatcher';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-cyan-600',
@@ -162,16 +164,20 @@ export function PassengerRoutesScreen({
   onNavigate,
 }: PassengerRoutesScreenProps) {
   const placesLib = useMapsLibrary('places');
+  const geocodingLib = useMapsLibrary('geocoding');
   const topSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     originMarker,
     selectedDestination,
     tripSubmittedNonce,
+    mapPickTarget,
     setOriginMarker,
     setOriginQuery,
     setSelectedDestination,
     setDestQuery,
+    setMapPickTarget,
+    onReopenTripCard,
   } = tripPlanner;
 
   // Catalog filter state (left-side drawer opened via Rutas button)
@@ -196,10 +202,16 @@ export function PassengerRoutesScreen({
 
   // Unified hidden-by-default drawer & modals
   const [panelOpen, setPanelOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'nearby' | 'filtered'>('nearby');
+  const [drawerTab, setDrawerTab] = useState<'trip' | 'nearby' | 'filtered'>('nearby');
   const [searchOpenNonce, setSearchOpenNonce] = useState(0);
   const [selectedStation, setSelectedStation] = useState<TransitStation | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Map pin picker draft state
+  const [draftPickPosition, setDraftPickPosition] = useState<LatLng | null>(null);
+  const [draftPickPlace, setDraftPickPlace] = useState<PlacePoint | null>(null);
+  const [isGeocodingPin, setIsGeocodingPin] = useState(false);
+  const geocodeSeqRef = useRef(0);
 
   const [mapSignal, setMapSignal] = useState<MapControlSignal | null>(null);
 
@@ -259,23 +271,65 @@ export function PassengerRoutesScreen({
     activeOrigin
   );
 
+  const tripMatchResult = useMemo(() => {
+    if (!selectedDestination) return null;
+    return findTripRoutes(
+      COMPANY_BUS_ROUTES,
+      activeOrigin,
+      selectedDestination.position
+    );
+  }, [activeOrigin, selectedDestination]);
+
   useEffect(() => {
     if (tripSubmittedNonce <= 0) return;
     if (selectedDestination) {
       setOnlyToDestination(true);
       setRadiusFilter(null);
-      setDrawerTab('nearby');
+      setDrawerTab('trip');
       setPanelOpen(true);
-      triggerSignal('fitBounds', selectedDestination.position, 14, [
-        activeOrigin,
-        selectedDestination.position,
-      ]);
+
+      const bestDirect = tripMatchResult?.direct[0];
+      const bestTransfer = tripMatchResult?.transfers[0];
+
+      if (bestDirect) {
+        setSelectedRoute(bestDirect.route);
+        setRouteDirectionMode(bestDirect.directionMode);
+        setShowRouteTextDetails(false);
+        triggerSignal('fitBounds', selectedDestination.position, 14, [
+          activeOrigin,
+          bestDirect.boardingPoint,
+          bestDirect.alightingPoint,
+          selectedDestination.position,
+        ]);
+      } else if (bestTransfer) {
+        setSelectedRoute(bestTransfer.firstLeg);
+        setRouteDirectionMode(bestTransfer.firstDirection);
+        setShowRouteTextDetails(false);
+        triggerSignal('fitBounds', selectedDestination.position, 14, [
+          activeOrigin,
+          bestTransfer.transferPoint,
+          selectedDestination.position,
+        ]);
+      } else {
+        setSelectedRoute(null);
+        triggerSignal('fitBounds', selectedDestination.position, 14, [
+          activeOrigin,
+          selectedDestination.position,
+        ]);
+      }
     } else if (originMarker) {
       setDrawerTab('nearby');
       setPanelOpen(true);
       triggerSignal('focus', originMarker.position, 15);
     }
-  }, [tripSubmittedNonce, selectedDestination, originMarker, activeOrigin, triggerSignal]);
+  }, [
+    tripSubmittedNonce,
+    selectedDestination,
+    originMarker,
+    activeOrigin,
+    tripMatchResult,
+    triggerSignal,
+  ]);
 
   useEffect(() => {
     if (!routesSearchOpen) {
@@ -285,19 +339,144 @@ export function PassengerRoutesScreen({
     setPanelOpen(false);
   }, [routesSearchOpen]);
 
+  const resolveCoordinateToPlace = useCallback(
+    async (pos: LatLng): Promise<PlacePoint> => {
+      const fallbackName = `Pin (${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)})`;
+      const fallbackAddress = 'Barranquilla, Atlántico';
+      if (!geocodingLib) {
+        return {name: fallbackName, address: fallbackAddress, position: pos};
+      }
+      try {
+        const geocoder = new geocodingLib.Geocoder();
+        const response = await geocoder.geocode({location: pos});
+        const best = response.results?.[0];
+        if (!best?.formatted_address) {
+          return {name: fallbackName, address: fallbackAddress, position: pos};
+        }
+        const cleanedFull = best.formatted_address
+          .replace(/,\s*Barranquilla,\s*Atlántico,\s*Colombia$/i, '')
+          .replace(/,\s*Colombia$/i, '')
+          .trim();
+        const shortName =
+          cleanedFull.split(',')[0]?.trim() || cleanedFull || fallbackName;
+        return {
+          name: shortName,
+          address: cleanedFull || best.formatted_address,
+          position: pos,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('OVER_QUERY_LIMIT')) {
+          window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
+        }
+        return {name: fallbackName, address: fallbackAddress, position: pos};
+      }
+    },
+    [geocodingLib]
+  );
+
+  const handlePickMapCoordinate = useCallback(
+    (pos: LatLng) => {
+      const seq = ++geocodeSeqRef.current;
+      setDraftPickPosition(pos);
+      setIsGeocodingPin(true);
+      void resolveCoordinateToPlace(pos).then((place) => {
+        if (seq !== geocodeSeqRef.current) return;
+        setDraftPickPlace(place);
+        setIsGeocodingPin(false);
+      });
+    },
+    [resolveCoordinateToPlace]
+  );
+
+  useEffect(() => {
+    if (!mapPickTarget) {
+      geocodeSeqRef.current += 1;
+      setDraftPickPosition(null);
+      setDraftPickPlace(null);
+      setIsGeocodingPin(false);
+      return;
+    }
+
+    setPanelOpen(false);
+    setRoutesSearchOpen(false);
+    setShowRouteTextDetails(false);
+    setSelectedStation(null);
+
+    const initialPos =
+      mapPickTarget === 'origin'
+        ? originMarker?.position ?? userPosition
+        : selectedDestination?.position ?? BARRANQUILLA_PASSENGER_CENTER;
+
+    triggerSignal('focus', initialPos, 16);
+    handlePickMapCoordinate(initialPos);
+  }, [
+    mapPickTarget,
+    originMarker,
+    selectedDestination,
+    userPosition,
+    triggerSignal,
+    handlePickMapCoordinate,
+  ]);
+
+  const handleConfirmMapPin = useCallback(() => {
+    if (!mapPickTarget || !draftPickPosition) return;
+    const confirmedPlace: PlacePoint = draftPickPlace ?? {
+      name: `Pin (${draftPickPosition.lat.toFixed(4)}, ${draftPickPosition.lng.toFixed(4)})`,
+      address: 'Barranquilla, Atlántico',
+      position: draftPickPosition,
+    };
+
+    if (mapPickTarget === 'origin') {
+      setOriginMarker(confirmedPlace);
+      setOriginQuery(confirmedPlace.name);
+      setToastMsg(`Recogida fijada: ${confirmedPlace.name}`);
+    } else {
+      setSelectedDestination(confirmedPlace);
+      setDestQuery(confirmedPlace.name);
+      setToastMsg(`Destino fijado: ${confirmedPlace.name}`);
+    }
+
+    setMapPickTarget(null);
+    triggerSignal('focus', confirmedPlace.position, 16);
+    onReopenTripCard();
+  }, [
+    mapPickTarget,
+    draftPickPosition,
+    draftPickPlace,
+    setOriginMarker,
+    setOriginQuery,
+    setSelectedDestination,
+    setDestQuery,
+    setMapPickTarget,
+    triggerSignal,
+    onReopenTripCard,
+  ]);
+
+  const handleCancelMapPin = useCallback(() => {
+    setMapPickTarget(null);
+    onReopenTripCard();
+  }, [setMapPickTarget, onReopenTripCard]);
+
   const applyDestinationFromPlaces = useCallback(
     (point: PlacePoint) => {
       setSelectedDestination(point);
       setDestQuery(point.name);
       setOnlyToDestination(true);
       setRadiusFilter(null);
-      setDrawerTab('nearby');
+      setDrawerTab('trip');
       setPanelOpen(true);
       setTopSearchFocused(false);
       setRoutesSearchOpen(false);
       setSearchText('');
+      const quickMatch = findTripRoutes(COMPANY_BUS_ROUTES, activeOrigin, point.position);
+      if (quickMatch.direct[0]) {
+        setSelectedRoute(quickMatch.direct[0].route);
+        setRouteDirectionMode(quickMatch.direct[0].directionMode);
+        setShowRouteTextDetails(false);
+      }
       triggerSignal('fitBounds', point.position, 14, [activeOrigin, point.position]);
-      setToastMsg(`Destino: ${point.name}`);
+      setToastMsg(`Rutas hacia ${point.name}`);
     },
     [activeOrigin, setDestQuery, setSelectedDestination, triggerSignal]
   );
@@ -633,19 +812,25 @@ export function PassengerRoutesScreen({
   };
 
   const handleOpenPanel = () => {
-    setDrawerTab(hasRouteFilter ? 'filtered' : 'nearby');
+    if (selectedDestination) {
+      setDrawerTab('trip');
+    } else if (hasRouteFilter) {
+      setDrawerTab('filtered');
+    } else {
+      setDrawerTab('nearby');
+    }
     setPanelOpen(true);
   };
 
   return (
-    <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-white flex flex-col overflow-hidden border-x border-slate-200">
-      {/* Unified Live Barranquilla Map (Full-bleed with compact floating filter bar) */}
+    <div className="@container relative w-full h-full bg-white flex flex-col overflow-hidden">
+      {/* Unified Live Barranquilla Map (Full-bleed with compact floating controls) */}
       <main className="relative flex-1 min-h-[220px] w-full bg-[#E8ECEF] overflow-hidden">
         {/* Left Slide-Out Route Filter Side Menu (triggered by Rutas nav button) */}
         <div
           aria-hidden={!routesSearchOpen}
           onClick={() => setRoutesSearchOpen(false)}
-          className={`absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-[1px] transition-opacity duration-200 ${
+          className={`absolute inset-0 z-30 bg-slate-900/30 backdrop-blur-[1px] lg:bg-slate-900/10 lg:backdrop-blur-none transition-opacity duration-200 ${
             routesSearchOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
         />
@@ -654,7 +839,7 @@ export function PassengerRoutesScreen({
           role="dialog"
           aria-label="Menú lateral de filtro de rutas"
           aria-hidden={!routesSearchOpen}
-          className={`absolute top-0 bottom-0 left-0 z-40 w-[85%] max-w-[325px] bg-white shadow-2xl border-r border-slate-200 flex flex-col transition-transform duration-250 ease-out ${
+          className={`absolute top-0 bottom-0 left-0 z-40 w-[86%] max-w-[330px] sm:w-[360px] sm:max-w-[360px] lg:w-[390px] lg:max-w-[390px] bg-white shadow-2xl border-r border-slate-200 flex flex-col transition-transform duration-250 ease-out ${
             routesSearchOpen
               ? 'translate-x-0 pointer-events-auto'
               : '-translate-x-full pointer-events-none'
@@ -1045,6 +1230,9 @@ export function PassengerRoutesScreen({
           userRadiusMeters={radiusFilter}
           nearbyBuses={nearbyBusMarkers}
           signal={mapSignal}
+          mapPickMode={mapPickTarget}
+          draftPickPosition={draftPickPosition}
+          onPickMapCoordinate={handlePickMapCoordinate}
           onBoundsChanged={handleBoundsChanged}
           onSelectCatalogRoute={handleSelectRoute}
           onSelectStation={(st) => setSelectedStation(st)}
@@ -1070,16 +1258,106 @@ export function PassengerRoutesScreen({
           }}
         />
 
+        {/* Map Pin Picker Mode Banner (top) & Confirmation Card (bottom) */}
+        {mapPickTarget && (
+          <>
+            <div className="absolute top-2.5 left-2.5 right-14 z-30 pointer-events-auto flex flex-col sm:flex-row sm:items-center gap-1.5 max-w-xl">
+              <div className="px-3 py-1.5 rounded-[12px] bg-slate-900/95 backdrop-blur-sm text-white shadow-lg flex items-center gap-2 text-xs font-semibold">
+                <MapPin className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                <span className="truncate">Toca el mapa o arrastra el pin</span>
+              </div>
+              <div className="inline-flex items-center gap-1 p-1 rounded-[12px] bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 self-start">
+                <button
+                  type="button"
+                  onClick={() => setMapPickTarget('origin')}
+                  className={`px-2.5 py-1 rounded-[8px] text-[11px] font-bold transition-colors ${
+                    mapPickTarget === 'origin'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Recogida (A)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapPickTarget('destination')}
+                  className={`px-2.5 py-1 rounded-[8px] text-[11px] font-bold transition-colors ${
+                    mapPickTarget === 'destination'
+                      ? 'bg-[#0D9488] text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Destino (B)
+                </button>
+              </div>
+            </div>
+
+            <div className="absolute bottom-3 left-2.5 right-2.5 z-30 mx-auto max-w-md bg-white/95 backdrop-blur-md rounded-[16px] shadow-2xl border border-slate-200 p-3 space-y-2.5 pointer-events-auto">
+              <div className="flex items-start gap-2.5">
+                <span
+                  className={`w-7 h-7 rounded-full text-white text-xs font-extrabold flex items-center justify-center shrink-0 mt-0.5 shadow-sm ${
+                    mapPickTarget === 'origin' ? 'bg-emerald-600' : 'bg-[#0D9488]'
+                  }`}
+                >
+                  {mapPickTarget === 'origin' ? 'A' : 'B'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    {mapPickTarget === 'origin' ? 'Punto de recogida' : 'Destino'}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    {isGeocodingPin && (
+                      <Loader2 className="w-3.5 h-3.5 text-[#0D9488] animate-spin shrink-0" />
+                    )}
+                    <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                      {draftPickPlace?.name ??
+                        (draftPickPosition
+                          ? `Pin (${draftPickPosition.lat.toFixed(4)}, ${draftPickPosition.lng.toFixed(4)})`
+                          : 'Toca un punto en el mapa')}
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {draftPickPlace?.address ?? 'Barranquilla, Atlántico'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelMapPin}
+                  className="flex-1 h-9 rounded-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmMapPin}
+                  disabled={!draftPickPosition}
+                  className={`flex-[1.5] h-9 rounded-[10px] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors disabled:opacity-50 ${
+                    mapPickTarget === 'origin'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-[#0D9488] hover:bg-[#0F766E]'
+                  }`}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Confirmar pin</span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Compact Floating PWA Install Prompt (auto-hidden when installed or unsupported) */}
-        {!(originMarker || selectedDestination) && !selectedRoute && (
+        {!(originMarker || selectedDestination) && !selectedRoute && !mapPickTarget && (
           <div className="absolute top-2.5 left-2.5 z-20 pointer-events-auto">
             <PWAInstallButton variant="compact" />
           </div>
         )}
 
         {/* Compact Active Trip Summary Pill (visible when pickup/destination chosen via + or search) */}
-        {(originMarker || selectedDestination) && (
-          <div className="absolute top-2.5 left-2.5 right-14 z-20 pointer-events-auto transition-all">
+        {(originMarker || selectedDestination) && !mapPickTarget && (
+          <div className="absolute top-2.5 left-2.5 right-14 max-w-lg z-20 pointer-events-auto transition-all">
             <div className="px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 flex items-center justify-between gap-2">
               <button
                 type="button"
@@ -1100,6 +1378,8 @@ export function PassengerRoutesScreen({
                   setSelectedDestination(null);
                   setDestQuery('');
                   setOnlyToDestination(false);
+                  setSelectedRoute(null);
+                  if (drawerTab === 'trip') setDrawerTab('nearby');
                 }}
                 aria-label="Limpiar ruta seleccionada"
                 className="p-0.5 text-slate-400 hover:text-slate-700 shrink-0"
@@ -1130,7 +1410,7 @@ export function PassengerRoutesScreen({
         </aside>
 
         {/* Clickable trigger area at bottom of map: Selected Route card (replaces button when route selected) or Buses/Rutas pill */}
-        {!panelOpen && !routesSearchOpen && (
+        {!panelOpen && !routesSearchOpen && !mapPickTarget && (
           selectedRoute ? (
             <div
               role="button"
@@ -1288,7 +1568,13 @@ export function PassengerRoutesScreen({
             >
               <Route className="w-3.5 h-3.5 text-[#0D9488]" />
               <span>
-                {hasRouteFilter
+                {selectedDestination && tripMatchResult
+                  ? `Rutas del viaje (${
+                      tripMatchResult.direct.length > 0
+                        ? tripMatchResult.direct.length
+                        : tripMatchResult.transfers.length
+                    })`
+                  : hasRouteFilter
                   ? `Ver rutas (${filteredRoutes.length})`
                   : `Buses cerca (${totalNearbyCount})`}
               </span>
@@ -1302,7 +1588,7 @@ export function PassengerRoutesScreen({
       {panelOpen && (
         <section
           aria-label="Buses cercanos y rutas filtradas"
-          className="relative z-30 shrink-0 min-h-0 max-h-[58%] bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 pt-1.5 pb-3 flex flex-col gap-2 transition-all"
+          className="relative z-30 shrink-0 min-h-0 max-h-[58%] lg:max-h-[48%] bg-white rounded-t-[20px] shadow-[0_-6px_24px_rgba(0,0,0,0.1)] border-t border-slate-200 px-3.5 sm:px-6 pt-1.5 pb-3 flex flex-col gap-2 transition-all"
         >
           <button
             type="button"
@@ -1312,12 +1598,29 @@ export function PassengerRoutesScreen({
           />
 
           {/* Drawer Tabs & Controls */}
-          <div className="flex items-center justify-between gap-2 shrink-0 flex-wrap">
-            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-full">
+          <div className="w-full max-w-6xl mx-auto flex items-center justify-between gap-2 shrink-0 flex-wrap">
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-full overflow-x-auto no-scrollbar">
+              {selectedDestination && tripMatchResult && (
+                <button
+                  type="button"
+                  onClick={() => setDrawerTab('trip')}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                    drawerTab === 'trip'
+                      ? 'bg-[#0D9488] text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900'
+                  }`}
+                >
+                  Para tu viaje (
+                  {tripMatchResult.direct.length > 0
+                    ? tripMatchResult.direct.length
+                    : tripMatchResult.transfers.length}
+                  )
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setDrawerTab('nearby')}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
                   drawerTab === 'nearby'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -1328,7 +1631,7 @@ export function PassengerRoutesScreen({
               <button
                 type="button"
                 onClick={() => setDrawerTab('filtered')}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
                   drawerTab === 'filtered'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -1339,7 +1642,16 @@ export function PassengerRoutesScreen({
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              {drawerTab === 'nearby' ? (
+              {drawerTab === 'trip' ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchOpenNonce((n) => n + 1)}
+                  className="min-h-[28px] px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1 bg-teal-50 text-[#0D9488] border border-teal-200 hover:bg-teal-100 transition-colors"
+                >
+                  <MapPin className="w-3 h-3" />
+                  <span>Editar viaje</span>
+                </button>
+              ) : drawerTab === 'nearby' ? (
                 <button
                   type="button"
                   onClick={() => setShowFilters((v) => !v)}
@@ -1389,6 +1701,31 @@ export function PassengerRoutesScreen({
             </div>
           </div>
 
+          {/* Active Trip Origin -> Destination Summary Bar */}
+          {drawerTab === 'trip' && selectedDestination && tripMatchResult && (
+            <div className="w-full max-w-6xl mx-auto px-2.5 py-1.5 rounded-[10px] bg-teal-50/70 border border-teal-200/80 flex items-center justify-between gap-2 text-[11px] shrink-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
+                <span className="font-semibold text-slate-800 truncate">
+                  {originMarker ? originMarker.name : 'Tu ubicación (GPS)'}
+                </span>
+                <ArrowRight className="w-3 h-3 text-[#0D9488] shrink-0" />
+                <span className="font-semibold text-slate-900 truncate">
+                  {selectedDestination.name}
+                </span>
+              </div>
+              <span className="text-[10.5px] font-bold text-[#0D9488] whitespace-nowrap shrink-0">
+                {tripMatchResult.direct.length > 0
+                  ? `${tripMatchResult.direct.length} ${
+                      tripMatchResult.direct.length === 1 ? 'ruta directa' : 'rutas directas'
+                    }`
+                  : tripMatchResult.transfers.length > 0
+                  ? `${tripMatchResult.transfers.length} con transbordo`
+                  : 'Sin rutas cercanas'}
+              </span>
+            </div>
+          )}
+
           {/* Radius & Destination Filters (when Buses cerca tab active & expanded) */}
           {drawerTab === 'nearby' && showFilters && (
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 pt-1 border-t border-slate-100 shrink-0">
@@ -1427,8 +1764,206 @@ export function PassengerRoutesScreen({
           )}
 
           {/* Drawer Results Grid */}
-          <div className="flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 gap-2 overflow-y-auto pr-0.5 pb-14 content-start">
-            {drawerTab === 'nearby' ? (
+          <div className="w-full max-w-6xl mx-auto flex-1 min-h-0 grid grid-cols-1 @[560px]:grid-cols-2 @[900px]:grid-cols-3 gap-2.5 overflow-y-auto pr-0.5 pb-14 content-start">
+            {drawerTab === 'trip' && selectedDestination && tripMatchResult ? (
+              tripMatchResult.direct.length === 0 &&
+              tripMatchResult.transfers.length === 0 ? (
+                <div className="col-span-full py-6 px-3 text-center text-xs text-slate-600 space-y-2.5">
+                  <p>
+                    No encontramos rutas de bus a menos de 2 km de ambos puntos. Intenta acercar el pin de recogida o destino a una vía principal.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSearchOpenNonce((n) => n + 1)}
+                    className="px-3.5 py-2 rounded-lg bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>Ajustar partida o destino</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {tripMatchResult.direct.map((match) => {
+                    const {route} = match;
+                    const isSelected = selectedRoute?.id === route.id;
+                    return (
+                      <article
+                        key={`trip-${route.id}-${match.directionMode}`}
+                        onClick={() => {
+                          setSelectedRoute(route);
+                          setRouteDirectionMode(match.directionMode);
+                          setShowRouteTextDetails(false);
+                          setPanelOpen(false);
+                          triggerSignal('fitBounds', selectedDestination.position, 14, [
+                            activeOrigin,
+                            match.boardingPoint,
+                            match.alightingPoint,
+                            selectedDestination.position,
+                          ]);
+                          setToastMsg(
+                            `${route.company} ${route.code} · ${match.directionLabel}`
+                          );
+                        }}
+                        className={`group p-3 rounded-[14px] border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-teal-50/80 border-[#0D9488] ring-1 ring-[#0D9488]'
+                            : 'bg-slate-50 border-slate-200 hover:border-[#0D9488]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span
+                              className={`px-2 py-1 ${getCompanyBadgeClass(
+                                route.company
+                              )} text-white font-headline text-xs font-bold rounded-[6px] shrink-0 mt-0.5`}
+                            >
+                              {route.code}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h3 className="text-xs font-bold text-slate-900 leading-snug truncate">
+                                  {route.name}
+                                </h3>
+                              </div>
+                              <p className="text-[11px] text-slate-600 truncate">
+                                {route.company} ·{' '}
+                                <span
+                                  className={`font-semibold ${
+                                    match.directionMode === 'regreso'
+                                      ? 'text-red-700'
+                                      : 'text-emerald-700'
+                                  }`}
+                                >
+                                  {match.directionLabel}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="font-headline text-sm text-emerald-700 font-bold tabular-nums">
+                              ~{match.estimatedRideMinutes} min
+                            </span>
+                            <p className="text-[10px] text-slate-500 tabular-nums">
+                              {formatDistanceLabel(match.rideMeters)} en bus
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 px-2 py-1.5 rounded-lg bg-white border border-slate-200/80 grid grid-cols-2 gap-1.5 text-[10.5px]">
+                          <div className="flex items-center gap-1 text-slate-700 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />
+                            <span className="truncate">
+                              Aborda a <strong>{formatDistanceLabel(match.originWalkMeters)}</strong>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-slate-700 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#0D9488] shrink-0" />
+                            <span className="truncate">
+                              Te deja a <strong>{formatDistanceLabel(match.destWalkMeters)}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800 truncate">
+                            <Route className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate group-hover:underline">
+                              {isSelected ? 'Trazada en mapa' : 'Ver recorrido en mapa'}
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-mono text-xs font-bold text-slate-900 tabular-nums">
+                              {formatCOP(route.fareCop)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigate('qr');
+                              }}
+                              className="min-h-7 px-2.5 py-1 rounded bg-slate-900 text-white text-[11px] font-medium hover:bg-slate-800"
+                            >
+                              QR Pasaje
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+
+                  {tripMatchResult.transfers.map((tr) => {
+                    const isFirstSelected = selectedRoute?.id === tr.firstLeg.id;
+                    return (
+                      <article
+                        key={`transfer-${tr.id}`}
+                        onClick={() => {
+                          setSelectedRoute(tr.firstLeg);
+                          setRouteDirectionMode(tr.firstDirection);
+                          setShowRouteTextDetails(false);
+                          setPanelOpen(false);
+                          triggerSignal('fitBounds', tr.transferPoint, 14, [
+                            activeOrigin,
+                            tr.transferPoint,
+                            selectedDestination.position,
+                          ]);
+                          setToastMsg(
+                            `Transbordo: ${tr.firstLeg.code} → ${tr.secondLeg.code}`
+                          );
+                        }}
+                        className={`p-3 rounded-[14px] border transition-all cursor-pointer ${
+                          isFirstSelected
+                            ? 'bg-amber-50/70 border-amber-500 ring-1 ring-amber-400'
+                            : 'bg-slate-50 border-slate-200 hover:border-amber-500'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <span
+                              className={`px-2 py-0.5 ${getCompanyBadgeClass(
+                                tr.firstLeg.company
+                              )} text-white font-headline text-xs font-bold rounded-[6px]`}
+                            >
+                              {tr.firstLeg.code}
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span
+                              className={`px-2 py-0.5 ${getCompanyBadgeClass(
+                                tr.secondLeg.company
+                              )} text-white font-headline text-xs font-bold rounded-[6px]`}
+                            >
+                              {tr.secondLeg.code}
+                            </span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold shrink-0">
+                            1 transbordo
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-700 mt-1.5 truncate">
+                          1. {tr.firstLeg.company} ({tr.firstLeg.code}) → 2.{' '}
+                          {tr.secondLeg.company} ({tr.secondLeg.code})
+                        </p>
+                        <p className="text-[10.5px] text-slate-500 mt-0.5">
+                          Inicio a {formatDistanceLabel(tr.originWalkMeters)} · Transbordo{' '}
+                          {formatDistanceLabel(tr.transferWalkMeters)} · Destino a{' '}
+                          {formatDistanceLabel(tr.destWalkMeters)}
+                        </p>
+
+                        <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-amber-800">
+                            Ver tramo 1 en mapa
+                          </span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {formatCOP(tr.firstLeg.fareCop + tr.secondLeg.fareCop)}
+                          </span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </>
+              )
+            ) : drawerTab === 'nearby' ? (
               totalNearbyCount === 0 ? (
                 <div className="col-span-full py-5 text-center text-xs text-slate-500 space-y-2">
                   <p>No hay buses dentro de este radio con los filtros aplicados.</p>
@@ -1723,7 +2258,10 @@ export function PassengerRoutesScreen({
         balance={balance}
         tripPlanner={tripPlanner}
         onNavigate={onNavigate}
-        onDestinationCleared={() => setOnlyToDestination(false)}
+        onDestinationCleared={() => {
+          setOnlyToDestination(false);
+          if (drawerTab === 'trip') setDrawerTab('nearby');
+        }}
         externalOpenNonce={searchOpenNonce}
         routesSearchOpen={routesSearchOpen}
         onToggleRoutesSearch={() => setRoutesSearchOpen((prev) => !prev)}

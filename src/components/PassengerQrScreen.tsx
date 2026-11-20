@@ -97,44 +97,46 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
   };
 
   return (
-    <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-[#F8FAFC] flex flex-col overflow-hidden border-x border-slate-200">
+    <div className="@container relative w-full h-full bg-[#F8FAFC] flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="shrink-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 pt-4 pb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <header className="shrink-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 pt-4 pb-3">
+        <div className="max-w-5xl mx-auto w-full flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => onNavigate('rutas')}
+              aria-label="Volver a rutas"
+              className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="font-headline text-base sm:text-lg font-bold text-slate-900 truncate">
+                Ticket QR de Abordaje
+              </h1>
+              <p className="text-[11px] sm:text-xs text-slate-500 truncate">
+                Validador digital Barranquilla · {formatCOP(FARE_PER_PASSENGER)} c/u
+              </p>
+            </div>
+          </div>
           <button
             type="button"
-            onClick={() => onNavigate('rutas')}
-            aria-label="Volver a rutas"
-            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
+            onClick={() => onNavigate('billetera')}
+            className="h-9 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <Wallet className="w-4 h-4 text-[#0D9488]" />
+            <span>Pagos</span>
           </button>
-          <div className="min-w-0">
-            <h1 className="font-headline text-base @[420px]:text-lg font-bold text-slate-900 truncate">
-              Ticket QR de Abordaje
-            </h1>
-            <p className="text-[11px] text-slate-500 truncate">
-              Validador digital Barranquilla · {formatCOP(FARE_PER_PASSENGER)} c/u
-            </p>
-          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onNavigate('billetera')}
-          className="h-9 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
-        >
-          <Wallet className="w-4 h-4 text-[#0D9488]" />
-          <span>Pagos</span>
-        </button>
       </header>
 
       {/* Scrollable Main Content */}
-      <main className="flex-1 min-h-0 overflow-y-auto px-4 py-4 pb-24">
-        <div className="space-y-4 @[640px]:space-y-0 @[640px]:grid @[640px]:grid-cols-12 @[640px]:gap-5 items-start">
+      <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 pb-16">
+        <div className="max-w-5xl mx-auto w-full space-y-4 md:space-y-0 md:grid md:grid-cols-12 md:gap-6 items-start">
           {/* Dynamic QR Ticket Card */}
           <section
             aria-label="Ticket Digital Dinámico"
-            className="@[640px]:col-span-7 relative bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-[22px] p-4 @[420px]:p-5 shadow-xl overflow-hidden border border-slate-700"
+            className="md:col-span-6 relative bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-[22px] p-4 sm:p-6 shadow-xl overflow-hidden border border-slate-700"
           >
             <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-[#0D9488]/20 rounded-full blur-2xl pointer-events-none" />
 
@@ -172,7 +174,7 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
                 className="p-3.5 bg-white rounded-xl shadow-inner flex flex-col items-center hover:ring-2 hover:ring-[#14B8A6] transition-all cursor-pointer"
               >
                 <svg
-                  className="w-44 h-44 @[420px]:w-48 @[420px]:h-48"
+                  className="w-44 h-44 sm:w-48 sm:h-48 md:w-56 md:h-56"
                   viewBox="0 0 120 120"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
@@ -264,7 +266,7 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
           </section>
 
           {/* Right Column / Secondary QR Options */}
-          <div className="@[640px]:col-span-5 space-y-4">
+          <div className="md:col-span-6 space-y-4">
             {/* Passenger Count Selector for Group Boarding */}
             <section
               aria-label="Pasajes incluidos en el QR"
@@ -372,7 +374,7 @@ export function PassengerQrScreen({balance, tripPlanner, onNavigate}: PassengerQ
         balance={balance}
         tripPlanner={tripPlanner}
         onNavigate={onNavigate}
-        positionClass="absolute bottom-0 left-0 right-0"
+        positionClass="relative shrink-0"
       />
 
       {toastMsg && (

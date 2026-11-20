@@ -127,8 +127,8 @@ export function DriverCockpitScreen({
 
   return (
     <div className="relative w-full h-full bg-slate-950 text-slate-100 select-none overflow-hidden">
-      <div className="w-full h-full overflow-y-auto p-3 sm:p-5 md:p-6 pb-20">
-        <div className="max-w-[1180px] mx-auto min-h-full bg-slate-900 rounded-[20px] border border-slate-800 shadow-2xl flex flex-col justify-between overflow-hidden">
+      <div className="w-full h-full overflow-y-auto p-2.5 sm:p-4 md:p-6 pb-24">
+        <div className="max-w-[1360px] mx-auto min-h-full bg-slate-900 rounded-[16px] sm:rounded-[20px] border border-slate-800 shadow-2xl flex flex-col justify-between overflow-hidden">
         {/* Top System Telemetry Bar */}
         <header className="bg-slate-950 border-b border-slate-800 px-5 md:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-4">
@@ -168,11 +168,11 @@ export function DriverCockpitScreen({
         </header>
 
         {/* Main Operational Grid */}
-        <main className="flex-1 p-5 md:p-6 grid grid-cols-12 gap-5 md:gap-6 items-stretch">
+        <main className="flex-1 p-4 md:p-6 grid grid-cols-12 gap-4 md:gap-6 items-stretch">
           {/* Left Column: Driving Navigation & Next Stops */}
           <section
             aria-label="Navegación y Paradas"
-            className="col-span-12 lg:col-span-7 flex flex-col justify-between bg-slate-950 rounded-[14px] p-5 md:p-6 border border-slate-800"
+            className="col-span-12 lg:col-span-7 flex flex-col justify-between bg-slate-950 rounded-[14px] p-4 md:p-6 border border-slate-800"
           >
             {/* Next Stop Hero Banner */}
             <div className="p-4 md:p-5 rounded-[12px] bg-slate-800 border-l-4 border-[#0D9488] flex items-center justify-between shadow-lg gap-4">
@@ -252,7 +252,7 @@ export function DriverCockpitScreen({
             </div>
 
             {/* Trip Status Controls (56px Touch Targets) */}
-            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-800">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-3 border-t border-slate-800">
               <button
                 type="button"
                 onClick={handleTogglePause}
@@ -294,8 +294,9 @@ export function DriverCockpitScreen({
             aria-label="Validación de Pasajeros y Pagos"
             className="col-span-12 lg:col-span-5 flex flex-col justify-between gap-4"
           >
-            {/* Live Passenger Counting Card */}
-            <div className="bg-slate-950 rounded-[14px] p-5 border border-slate-800 shadow-md">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:flex lg:flex-col gap-4 flex-1">
+              {/* Live Passenger Counting Card */}
+              <div className="bg-slate-950 rounded-[14px] p-5 border border-slate-800 shadow-md flex flex-col justify-between">
               <div className="flex items-center justify-between mb-3">
                 <span className="font-mono text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
                   Ocupación en Vivo (APC)
@@ -372,6 +373,7 @@ export function DriverCockpitScreen({
                   </p>
                 </div>
               </div>
+            </div>
             </div>
 
             {/* Emergency / Operator Direct Comms Bar */}

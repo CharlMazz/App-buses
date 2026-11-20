@@ -80,59 +80,61 @@ export function PassengerWalletScreen({
   };
 
   return (
-    <div className="@container relative w-full h-full max-w-[960px] mx-auto bg-[#F8FAFC] flex flex-col overflow-hidden border-x border-slate-200">
+    <div className="@container relative w-full h-full bg-[#F8FAFC] flex flex-col overflow-hidden">
       {/* Sticky App Header */}
-      <header className="shrink-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 pt-4 pb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <button
-            type="button"
-            onClick={() => onNavigate('rutas')}
-            aria-label="Volver a rutas"
-            className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="min-w-0">
-            <h1 className="font-headline text-base @[420px]:text-lg font-bold text-slate-900 truncate">
-              Billetera & Pagos
-            </h1>
-            <p className="text-[11px] text-slate-500 truncate">
-              Saldo, recargas y métodos de pago · Tarifa $3.100 COP
-            </p>
+      <header className="shrink-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 pt-4 pb-3">
+        <div className="max-w-6xl mx-auto w-full flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => onNavigate('rutas')}
+              aria-label="Volver a rutas"
+              className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="font-headline text-base sm:text-lg font-bold text-slate-900 truncate">
+                Billetera & Pagos
+              </h1>
+              <p className="text-[11px] sm:text-xs text-slate-500 truncate">
+                Saldo, recargas y métodos de pago · Tarifa $3.100 COP
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => onNavigate('qr')}
-            className="h-9 px-3 rounded-full bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all"
-          >
-            <QrCode className="w-4 h-4" />
-            <span>Ver QR</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowAllTx(true);
-              txSectionRef.current?.scrollIntoView({behavior: 'smooth'});
-              setToastMsg(`Mostrando ${transactions.length} movimientos recientes`);
-            }}
-            aria-label="Historial de comprobantes"
-            className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all"
-          >
-            <Receipt className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigate('qr')}
+              className="h-9 px-3 rounded-full bg-[#0D9488] hover:bg-teal-700 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Ver QR</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAllTx(true);
+                txSectionRef.current?.scrollIntoView({behavior: 'smooth'});
+                setToastMsg(`Mostrando ${transactions.length} movimientos recientes`);
+              }}
+              aria-label="Historial de comprobantes"
+              className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all"
+            >
+              <Receipt className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Scrollable Main Content */}
       <main
         ref={mainScrollRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 pb-24"
+        className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 pb-16"
       >
-        <div className="space-y-4 @[640px]:space-y-0 @[640px]:grid @[640px]:grid-cols-12 @[640px]:gap-5 items-start">
+        <div className="max-w-6xl mx-auto w-full space-y-4 md:space-y-0 md:grid md:grid-cols-12 md:gap-6 items-start">
           {/* Left Column: Balance, Quick Top-Ups & Payment Methods */}
-          <div className="@[640px]:col-span-6 space-y-4">
+          <div className="md:col-span-5 space-y-4">
             {/* Digital Wallet Balance Card */}
             <section
               aria-label="Saldo y Billetera Digital"
@@ -224,7 +226,7 @@ export function PassengerWalletScreen({
               ref={txSectionRef}
               id="txListSection"
               aria-label="Historial de Movimientos"
-              className="@[640px]:col-span-6 bg-white rounded-[20px] p-4 shadow-sm border border-slate-200 space-y-3"
+              className="md:col-span-7 bg-white rounded-[20px] p-4 sm:p-5 shadow-sm border border-slate-200 space-y-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-headline text-base text-slate-900 font-bold">
@@ -328,7 +330,7 @@ export function PassengerWalletScreen({
         balance={balance}
         tripPlanner={tripPlanner}
         onNavigate={onNavigate}
-        positionClass="absolute bottom-0 left-0 right-0"
+        positionClass="relative shrink-0"
       />
 
       {/* Top Up Confirmation Modal */}

@@ -9,11 +9,9 @@ import {PassengerWalletScreen} from './components/PassengerWalletScreen';
 import {
   INITIAL_INCIDENTS,
   INITIAL_TRANSACTIONS,
-  NATIVE_DEVICE_BY_SCREEN,
   USER_GPS_POSITION,
 } from './data/barranquillaTransit';
 import type {
-  DeviceMode,
   LatLng,
   OperationalIncident,
   PlacePoint,
@@ -40,7 +38,6 @@ function getInitialScreen(): ScreenId {
 
 export default function App() {
   const [screen, setScreen] = useState<ScreenId>(getInitialScreen);
-  const [device, setDevice] = useState<DeviceMode>(() => NATIVE_DEVICE_BY_SCREEN[getInitialScreen()]);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Shared cross-screen transit state
@@ -62,6 +59,8 @@ export default function App() {
     nonce: number;
   } | null>(null);
   const [tripSubmittedNonce, setTripSubmittedNonce] = useState(0);
+  const [mapPickTarget, setMapPickTarget] = useState<'origin' | 'destination' | null>(null);
+  const [reopenTripNonce, setReopenTripNonce] = useState(0);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,7 +73,6 @@ export default function App() {
     const onHashChange = () => {
       const next = getInitialScreen();
       setScreen(next);
-      setDevice(NATIVE_DEVICE_BY_SCREEN[next]);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -88,7 +86,6 @@ export default function App() {
 
   const navigateTo = useCallback((next: ScreenId) => {
     setScreen(next);
-    setDevice(NATIVE_DEVICE_BY_SCREEN[next]);
     if (window.location.hash !== `#${next}`) {
       window.location.hash = next;
     }
@@ -141,6 +138,10 @@ export default function App() {
     setTripSubmittedNonce((n) => n + 1);
   }, []);
 
+  const handleReopenTripCard = useCallback(() => {
+    setReopenTripNonce((n) => n + 1);
+  }, []);
+
   const tripPlanner: TripPlannerState = {
     originQuery,
     originMarker,
@@ -148,27 +149,24 @@ export default function App() {
     selectedDestination,
     userPosition,
     tripSubmittedNonce,
+    mapPickTarget,
+    reopenTripNonce,
     setOriginQuery,
     setOriginMarker,
     setDestQuery,
     setSelectedDestination,
+    setMapPickTarget,
+    onReopenTripCard: handleReopenTripCard,
     onUpdateUserPosition: setUserPosition,
     onFocusMap: handleFocusMap,
     onTripSubmitted: handleTripSubmitted,
     onToast: setGlobalToast,
   };
 
-  const frameSizeClass =
-    device === 'movil'
-      ? 'w-full h-full sm:h-[min(844px,100%)] sm:min-h-[540px] sm:max-w-[390px] sm:my-auto sm:rounded-[20px]'
-      : device === 'tablet'
-      ? 'w-full h-full sm:h-[min(768px,100%)] sm:min-h-[540px] sm:max-w-[1024px] sm:my-auto sm:rounded-[20px]'
-      : 'w-full h-full sm:min-h-[540px] sm:rounded-[12px]';
-
   return (
     <APIProvider
       apiKey={MAPS_API_KEY}
-      libraries={['marker', 'maps', 'places']}
+      libraries={['marker', 'maps', 'places', 'geocoding']}
       language="es"
       region="CO"
     >
@@ -191,11 +189,9 @@ export default function App() {
           </div>
         )}
 
-        {/* App Device Stage */}
-        <main className="flex-1 min-h-0 flex justify-center p-0 sm:p-3 overflow-y-auto">
-          <div
-            className={`${frameSizeClass} overflow-hidden shadow-[0_10px_40px_rgba(15,23,42,0.25)] bg-white transition-all duration-200 shrink-0`}
-          >
+        {/* Responsive Full-Viewport App Stage */}
+        <main className="flex-1 min-h-0 flex justify-center overflow-hidden">
+          <div className="w-full h-full overflow-hidden bg-white">
             {screen === 'rutas' && (
               <PassengerRoutesScreen
                 balance={balance}

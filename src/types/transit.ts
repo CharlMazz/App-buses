@@ -31,10 +31,14 @@ export interface TripPlannerState {
   selectedDestination: PlacePoint | null;
   userPosition: LatLng;
   tripSubmittedNonce: number;
+  mapPickTarget: 'origin' | 'destination' | null;
+  reopenTripNonce: number;
   setOriginQuery: (value: string) => void;
   setOriginMarker: (point: PlacePoint | null) => void;
   setDestQuery: (value: string) => void;
   setSelectedDestination: (point: PlacePoint | null) => void;
+  setMapPickTarget: (target: 'origin' | 'destination' | null) => void;
+  onReopenTripCard: () => void;
   onUpdateUserPosition: (pos: LatLng) => void;
   onFocusMap: (pos: LatLng, zoom?: number) => void;
   onTripSubmitted: () => void;
