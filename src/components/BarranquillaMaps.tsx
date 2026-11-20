@@ -5,6 +5,7 @@ import {
   APILoadingStatus,
   AdvancedMarker,
   Map as GoogleMap,
+  RenderingType,
   useApiIsLoaded,
   useApiLoadingStatus,
   useMap,
@@ -42,17 +43,17 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'landscape',
     elementType: 'geometry',
-    stylers: [{color: '#f4f6f8'}],
+    stylers: [{color: '#e5e9f0'}],
   },
   {
     featureType: 'landscape.man_made',
     elementType: 'geometry',
-    stylers: [{color: '#edf1f5'}],
+    stylers: [{color: '#dce2ea'}],
   },
   {
     featureType: 'water',
     elementType: 'geometry',
-    stylers: [{color: '#dde4ec'}],
+    stylers: [{color: '#c7d3e0'}],
   },
   {
     featureType: 'water',
@@ -63,6 +64,11 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
     featureType: 'poi',
     elementType: 'all',
     stylers: [{visibility: 'off'}],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'geometry',
+    stylers: [{visibility: 'on'}, {color: '#d7dfe6'}],
   },
   {
     featureType: 'transit',
@@ -87,7 +93,7 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'administrative.locality',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#94a3b8'}],
+    stylers: [{color: '#64748b'}],
   },
   {
     featureType: 'administrative.locality',
@@ -107,62 +113,82 @@ const MINIMAL_MONOCHROME_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road.local',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#64748b'}],
-  },
-  {
-    featureType: 'road.local',
-    elementType: 'labels.text.stroke',
-    stylers: [{color: '#ffffff'}],
-  },
-  {
-    featureType: 'road.local',
-    elementType: 'geometry.fill',
-    stylers: [{color: '#ffffff'}],
-  },
-  {
-    featureType: 'road.local',
-    elementType: 'geometry.stroke',
-    stylers: [{color: '#e2e8f0'}],
-  },
-  {
-    featureType: 'road.arterial',
-    elementType: 'geometry.fill',
-    stylers: [{color: '#ffffff'}],
-  },
-  {
-    featureType: 'road.arterial',
-    elementType: 'geometry.stroke',
-    stylers: [{color: '#cbd5e1'}],
-  },
-  {
-    featureType: 'road.arterial',
-    elementType: 'labels.text.fill',
     stylers: [{color: '#475569'}],
   },
   {
+    featureType: 'road.local',
+    elementType: 'labels.text.stroke',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#cbd5e1'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'labels.text',
+    stylers: [{visibility: 'on'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#94a3b8'}],
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'labels.text.fill',
+    stylers: [{color: '#1e293b'}],
+  },
+  {
     featureType: 'road.arterial',
     elementType: 'labels.text.stroke',
     stylers: [{color: '#ffffff'}],
   },
   {
     featureType: 'road.highway',
+    elementType: 'labels.text',
+    stylers: [{visibility: 'on'}],
+  },
+  {
+    featureType: 'road.highway',
     elementType: 'geometry.fill',
-    stylers: [{color: '#e2e8f0'}],
+    stylers: [{color: '#f8fafc'}],
   },
   {
     featureType: 'road.highway',
     elementType: 'geometry.stroke',
-    stylers: [{color: '#cbd5e1'}],
+    stylers: [{color: '#64748b'}],
   },
   {
     featureType: 'road.highway',
     elementType: 'labels.text.fill',
-    stylers: [{color: '#334155'}],
+    stylers: [{color: '#0f172a'}],
   },
   {
     featureType: 'road.highway',
     elementType: 'labels.text.stroke',
     stylers: [{color: '#ffffff'}],
+  },
+  {
+    featureType: 'road.highway.controlled_access',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#f1f5f9'}],
+  },
+  {
+    featureType: 'road.highway.controlled_access',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#475569'}],
   },
 ];
 
@@ -215,6 +241,9 @@ function HtmlOverlayMarker({
 
     const el = document.createElement('div');
     el.style.position = 'absolute';
+    el.style.width = 'max-content';
+    el.style.whiteSpace = 'nowrap';
+    el.style.visibility = 'hidden';
     el.style.transform = 'translate(-50%, -50%)';
     el.style.zIndex = String(zIndex);
     el.style.pointerEvents = onClickRef.current || draggable ? 'auto' : 'none';
@@ -241,6 +270,7 @@ function HtmlOverlayMarker({
         if (pt) {
           el.style.left = `${pt.x}px`;
           el.style.top = `${pt.y}px`;
+          el.style.visibility = 'visible';
         }
       }
 
@@ -852,8 +882,10 @@ export function BarranquillaPassengerMap({
       <MapStatusOverlay theme="light" />
       <GoogleMap
         key={minimalMap ? 'minimal' : 'original'}
-        id="baq-passenger-map"
         mapId={minimalMap ? undefined : DEMO_MAP_ID}
+        renderingType={minimalMap ? RenderingType.RASTER : undefined}
+        mapTypeId="roadmap"
+        backgroundColor={minimalMap ? '#E5E9F0' : '#E8ECEF'}
         colorScheme={minimalMap ? undefined : 'LIGHT'}
         styles={minimalMap ? MINIMAL_MONOCHROME_MAP_STYLES : undefined}
         defaultCenter={lastCameraRef.current.center}

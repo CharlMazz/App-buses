@@ -1331,7 +1331,7 @@ export function PassengerRoutesScreen({
         {/* Map Pin Picker Mode Banner (top) & Confirmation Card (bottom) */}
         {mapPickTarget && (
           <>
-            <div className="absolute top-2.5 left-2.5 right-14 z-30 pointer-events-auto flex flex-col sm:flex-row sm:items-center gap-1.5 max-w-xl">
+            <div className="absolute top-[calc(0.625rem+env(safe-area-inset-top))] left-[calc(0.625rem+env(safe-area-inset-left))] right-16 z-30 pointer-events-auto flex flex-col sm:flex-row sm:items-center gap-1.5 max-w-xl">
               <div className="px-3 py-1.5 rounded-[12px] bg-slate-900/95 backdrop-blur-sm text-white shadow-lg flex items-center gap-2 text-xs font-semibold">
                 <MapPin className="w-3.5 h-3.5 text-teal-400 shrink-0" />
                 <span className="truncate">Toca el mapa o arrastra el pin</span>
@@ -1420,14 +1420,14 @@ export function PassengerRoutesScreen({
 
         {/* Compact Floating PWA Install Prompt (auto-hidden when installed or unsupported) */}
         {!(originMarker || selectedDestination) && !selectedRoute && !mapPickTarget && (
-          <div className="absolute top-2.5 left-2.5 z-20 pointer-events-auto">
+          <div className="absolute top-[calc(0.625rem+env(safe-area-inset-top))] left-[calc(0.625rem+env(safe-area-inset-left))] z-20 pointer-events-auto">
             <PWAInstallButton variant="compact" />
           </div>
         )}
 
         {/* Compact Active Trip Summary Pill (visible when pickup/destination chosen via + or search) */}
         {(originMarker || selectedDestination) && !mapPickTarget && (
-          <div className="absolute top-2.5 left-2.5 right-14 max-w-lg z-20 pointer-events-auto transition-all">
+          <div className="absolute top-[calc(0.625rem+env(safe-area-inset-top))] left-[calc(0.625rem+env(safe-area-inset-left))] right-20 max-w-lg z-20 pointer-events-auto transition-all">
             <div className="px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-sm shadow-md border border-slate-200 flex items-center justify-between gap-2">
               <button
                 type="button"
@@ -1463,7 +1463,7 @@ export function PassengerRoutesScreen({
         {/* Floating Map Utility Controls (GPS + Minimal/Original map toggle) */}
         <aside
           aria-label="Controles del mapa"
-          className="absolute top-2.5 right-2.5 z-20 flex flex-col items-end gap-1.5 transition-all"
+          className="absolute top-[calc(0.625rem+env(safe-area-inset-top))] right-[calc(0.625rem+env(safe-area-inset-right))] z-20 flex flex-col items-end gap-1.5 transition-all"
         >
           <button
             type="button"
@@ -1493,18 +1493,19 @@ export function PassengerRoutesScreen({
             aria-pressed={minimalMap}
             aria-label={
               minimalMap
-                ? 'Cambiar a mapa original con colores y señales'
-                : 'Cambiar a mapa limpio sin colores ni señales'
+                ? 'Mapa limpio activo. Tocar para cambiar a mapa original'
+                : 'Mapa original activo. Tocar para cambiar a mapa limpio'
             }
-            title={minimalMap ? 'Ver mapa original' : 'Ver mapa limpio'}
-            className={`h-7 px-2.5 rounded-full backdrop-blur-sm shadow-md border text-[10.5px] font-semibold flex items-center gap-1 active:scale-95 transition-all cursor-pointer ${
+            title={minimalMap ? 'Mapa limpio activo · Ver original' : 'Mapa original activo · Ver limpio'}
+            className={`h-7 px-2.5 rounded-full backdrop-blur-sm shadow-md border text-[10.5px] font-semibold flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer ${
               minimalMap
-                ? 'bg-slate-900/90 hover:bg-slate-800 text-white border-slate-700'
+                ? 'bg-slate-900/95 hover:bg-slate-800 text-white border-slate-700'
                 : 'bg-white/95 hover:bg-slate-50 text-slate-800 border-slate-200'
             }`}
           >
             <Layers className="w-3 h-3 shrink-0" />
-            <span>{minimalMap ? 'Original' : 'Limpio'}</span>
+            <span>{minimalMap ? 'Limpio' : 'Original'}</span>
+            {minimalMap && <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />}
           </button>
         </aside>
 
