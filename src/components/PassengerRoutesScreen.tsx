@@ -13,6 +13,7 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
+  Mic,
   Navigation,
   QrCode,
   Route,
@@ -184,6 +185,7 @@ export function PassengerRoutesScreen({
     setDestQuery,
     setMapPickTarget,
     onReopenTripCard,
+    onOpenVoiceTrip,
   } = tripPlanner;
 
   // Catalog filter state (left-side drawer opened via Rutas button)
@@ -1477,6 +1479,17 @@ export function PassengerRoutesScreen({
               <LocateFixed className="w-4 h-4 text-[#0D9488]" />
             )}
           </button>
+          {onOpenVoiceTrip && (
+            <button
+              type="button"
+              onClick={onOpenVoiceTrip}
+              aria-label="Dictar origen y destino por voz"
+              title="Dictar viaje por voz"
+              className="w-9 h-9 rounded-full bg-[#0D9488] hover:bg-[#0F766E] text-white shadow-md border border-white/80 flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -1661,6 +1674,7 @@ export function PassengerRoutesScreen({
 
               <button
                 type="button"
+                aria-haspopup="dialog"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onBuyRouteTicket) {
@@ -1691,26 +1705,39 @@ export function PassengerRoutesScreen({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleOpenPanel}
-              aria-expanded={false}
-              className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3.5 py-2 rounded-full bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 shadow-lg flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap"
-            >
-              <Route className="w-3.5 h-3.5 text-[#0D9488]" />
-              <span>
-                {selectedDestination && tripMatchResult
-                  ? `Rutas del viaje (${
-                      tripMatchResult.direct.length > 0
-                        ? tripMatchResult.direct.length
-                        : tripMatchResult.transfers.length
-                    })`
-                  : hasRouteFilter
-                  ? `Ver rutas (${filteredRoutes.length})`
-                  : `Buses cerca (${totalNearbyCount})`}
-              </span>
-              <ChevronUp className="w-4 h-4 text-slate-500" />
-            </button>
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 max-w-[calc(100%-1.25rem)]">
+              <button
+                type="button"
+                onClick={handleOpenPanel}
+                aria-expanded={false}
+                className="px-3.5 py-2 rounded-full bg-white hover:bg-slate-50 text-slate-900 border border-slate-200 shadow-lg flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap cursor-pointer"
+              >
+                <Route className="w-3.5 h-3.5 text-[#0D9488]" />
+                <span>
+                  {selectedDestination && tripMatchResult
+                    ? `Rutas del viaje (${
+                        tripMatchResult.direct.length > 0
+                          ? tripMatchResult.direct.length
+                          : tripMatchResult.transfers.length
+                      })`
+                    : hasRouteFilter
+                    ? `Ver rutas (${filteredRoutes.length})`
+                    : `Buses cerca (${totalNearbyCount})`}
+                </span>
+                <ChevronUp className="w-4 h-4 text-slate-500" />
+              </button>
+              {onOpenVoiceTrip && (
+                <button
+                  type="button"
+                  onClick={onOpenVoiceTrip}
+                  aria-label="Dictar por voz dónde estoy y a dónde voy"
+                  className="px-3.5 py-2 rounded-full bg-[#0D9488] hover:bg-[#0F766E] text-white border border-white/80 shadow-lg flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap cursor-pointer"
+                >
+                  <Mic className="w-3.5 h-3.5 shrink-0" />
+                  <span>Dictar viaje</span>
+                </button>
+              )}
+            </div>
           )
         )}
       </main>

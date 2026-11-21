@@ -90,8 +90,9 @@ export async function resolvePlaceFromText(
 
   // 2. Fallback to Place.searchByText (handles free-form landmarks, intersections, and addresses)
   try {
+    const hasMetroCity = /barranquilla|soledad|puerto colombia|malambo|galapa/i.test(trimmed);
     const {places} = await placesLib.Place.searchByText({
-      textQuery: `${trimmed}, Barranquilla`,
+      textQuery: hasMetroCity ? trimmed : `${trimmed}, Barranquilla`,
       fields: ['displayName', 'formattedAddress', 'location'],
       locationRestriction: BARRANQUILLA_METRO_BOUNDS,
       maxResultCount: 3,

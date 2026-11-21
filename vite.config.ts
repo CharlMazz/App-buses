@@ -51,6 +51,7 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          navigateFallbackDenylist: [/^\/api\//],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           globIgnores: ['assets/aistudio/**'],
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,

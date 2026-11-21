@@ -6,6 +6,7 @@ import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
 import {PassengerQrScreen} from './components/PassengerQrScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
+import {VoiceTripModal} from './components/VoiceTripModal';
 import {
   INITIAL_INCIDENTS,
   INITIAL_TRANSACTIONS,
@@ -63,6 +64,8 @@ export default function App() {
   const [mapPickTarget, setMapPickTarget] = useState<'origin' | 'destination' | null>(null);
   const [reopenTripNonce, setReopenTripNonce] = useState(0);
   const [selectedTicketRoute, setSelectedTicketRoute] = useState<SelectedTicketRoute | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,13 +110,19 @@ export default function App() {
     ]);
   }, []);
 
-  const handleBuyRouteTicket = useCallback(
-    (route: SelectedTicketRoute) => {
-      setSelectedTicketRoute(route);
-      navigateTo('qr');
-    },
-    [navigateTo]
-  );
+  useEffect(() => {
+    if (!qrModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setQrModalOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [qrModalOpen]);
+
+  const handleBuyRouteTicket = useCallback((route: SelectedTicketRoute) => {
+    setSelectedTicketRoute(route);
+    setQrModalOpen(true);
+  }, []);
 
   const handlePurchaseTicket = useCallback(
     (route: SelectedTicketRoute | null, passengerCount: number, totalCop: number): boolean => {
@@ -197,6 +206,7 @@ export default function App() {
     onUpdateUserPosition: setUserPosition,
     onFocusMap: handleFocusMap,
     onTripSubmitted: handleTripSubmitted,
+    onOpenVoiceTrip: () => setVoiceModalOpen(true),
     onToast: setGlobalToast,
   };
 
@@ -282,10 +292,49 @@ export default function App() {
           </div>
         </main>
 
+        {/* Ticket QR Modal Window */}
+        {qrModalOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ticket QR de Abordaje"
+            onClick={() => setQrModalOpen(false)}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-4xl h-[92dvh] sm:h-auto sm:max-h-[90dvh] rounded-t-[24px] sm:rounded-[24px] overflow-hidden shadow-2xl border border-slate-200 bg-[#F8FAFC] flex flex-col"
+            >
+              <PassengerQrScreen
+                balance={balance}
+                tripPlanner={tripPlanner}
+                selectedTicketRoute={selectedTicketRoute}
+                onClearTicketRoute={() => setSelectedTicketRoute(null)}
+                onPurchaseTicket={handlePurchaseTicket}
+                onNavigate={(next) => {
+                  setQrModalOpen(false);
+                  navigateTo(next);
+                }}
+                isModal
+                onClose={() => setQrModalOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Voice Trip Dictation Modal */}
+        <VoiceTripModal
+          isOpen={voiceModalOpen}
+          currentScreen={screen}
+          tripPlanner={tripPlanner}
+          onNavigate={navigateTo}
+          onClose={() => setVoiceModalOpen(false)}
+        />
+
         {/* Cross-Screen Prototype Toast */}
         <div
           role="status"
-          className={`fixed left-1/2 bottom-5 -translate-x-1/2 z-50 bg-[#0F172A] text-[#F8FAFC] px-4 py-2.5 rounded-xl text-[13px] border border-[#334155] shadow-xl max-w-[90vw] transition-all duration-200 ${
+          className={`fixed left-1/2 bottom-5 -translate-x-1/2 z-[60] bg-[#0F172A] text-[#F8FAFC] px-4 py-2.5 rounded-xl text-[13px] border border-[#334155] shadow-xl max-w-[90vw] transition-all duration-200 ${
             globalToast
               ? 'opacity-100 translate-y-0'
               : 'opacity-0 translate-y-5 pointer-events-none'

@@ -27,6 +27,8 @@ interface PassengerQrScreenProps {
     totalCop: number
   ) => boolean;
   onNavigate: (screen: ScreenId) => void;
+  isModal?: boolean;
+  onClose?: () => void;
 }
 
 const DEFAULT_FARE_PER_PASSENGER = 3100;
@@ -69,6 +71,8 @@ export function PassengerQrScreen({
   onClearTicketRoute,
   onPurchaseTicket,
   onNavigate,
+  isModal = false,
+  onClose,
 }: PassengerQrScreenProps) {
   const [ticketCode, setTicketCode] = useState('TK-BAQ-883492');
   const [qrSeed, setQrSeed] = useState(1);
@@ -160,14 +164,16 @@ export function PassengerQrScreen({
       <header className="shrink-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 pt-4 pb-3">
         <div className="max-w-5xl mx-auto w-full flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              type="button"
-              onClick={() => onNavigate('rutas')}
-              aria-label="Volver a rutas"
-              className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
+            {!isModal && (
+              <button
+                type="button"
+                onClick={() => onNavigate('rutas')}
+                aria-label="Volver a rutas"
+                className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900 hover:bg-slate-200 active:scale-95 transition-all shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
             <div className="min-w-0">
               <h1 className="font-headline text-base sm:text-lg font-bold text-slate-900 truncate">
                 Ticket QR de Abordaje
@@ -181,19 +187,38 @@ export function PassengerQrScreen({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigate('billetera')}
-            className="h-9 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
-          >
-            <Wallet className="w-4 h-4 text-[#0D9488]" />
-            <span>Pagos</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (isModal) onClose?.();
+                onNavigate('billetera');
+              }}
+              className="h-9 px-3 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
+            >
+              <Wallet className="w-4 h-4 text-[#0D9488]" />
+              <span>Pagos</span>
+            </button>
+            {isModal && onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Cerrar ventana de Ticket QR"
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 flex items-center justify-center active:scale-95 transition-all shrink-0 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Scrollable Main Content */}
-      <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 pb-16">
+      <main
+        className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 ${
+          isModal ? 'pb-6' : 'pb-16'
+        }`}
+      >
         <div className="max-w-5xl mx-auto w-full space-y-4 md:space-y-0 md:grid md:grid-cols-12 md:gap-6 items-start">
           {/* Dynamic QR Ticket Card */}
           <section
@@ -202,33 +227,8 @@ export function PassengerQrScreen({
           >
             <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-[#0D9488]/20 rounded-full blur-2xl pointer-events-none" />
 
-            {/* Ticket Header Status */}
-            <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/10">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="px-2 py-0.5 rounded bg-[#0D9488] text-white font-mono text-[11px] font-bold shrink-0">
-                  {purchasedTicket ? 'PASAJE ACTIVO' : 'QR DINÁMICO'}
-                </span>
-                <span className="text-xs text-white/85 truncate">
-                  {passengerCount} {passengerCount === 1 ? 'pasaje' : 'pasajes'} ·{' '}
-                  {formatCOP(requiredCop)}
-                </span>
-              </div>
-              <div
-                className={`flex items-center gap-1.5 font-mono text-[11px] shrink-0 ${
-                  hasEnoughBalance ? 'text-emerald-400' : 'text-amber-300'
-                }`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full animate-pulse ${
-                    hasEnoughBalance ? 'bg-emerald-400' : 'bg-amber-300'
-                  }`}
-                />
-                <span>{hasEnoughBalance ? 'Listo' : 'Saldo bajo'}</span>
-              </div>
-            </div>
-
             {selectedTicketRoute && (
-              <div className="mt-3 px-3 py-2 rounded-xl bg-white/10 border border-white/15 flex items-center justify-between gap-2">
+              <div className="px-3 py-2 rounded-xl bg-white/10 border border-white/15 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <Bus className="w-4 h-4 text-[#14B8A6] shrink-0" />
                   <div className="min-w-0">
@@ -454,7 +454,10 @@ export function PassengerQrScreen({
                 </div>
                 <button
                   type="button"
-                  onClick={() => onNavigate('billetera')}
+                  onClick={() => {
+                    if (isModal) onClose?.();
+                    onNavigate('billetera');
+                  }}
                   className="min-h-[40px] px-3 py-2 rounded-[10px] bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
@@ -493,13 +496,15 @@ export function PassengerQrScreen({
         </div>
       </main>
 
-      <PassengerBottomNav
-        currentScreen="qr"
-        balance={balance}
-        tripPlanner={tripPlanner}
-        onNavigate={onNavigate}
-        positionClass="relative shrink-0"
-      />
+      {!isModal && (
+        <PassengerBottomNav
+          currentScreen="qr"
+          balance={balance}
+          tripPlanner={tripPlanner}
+          onNavigate={onNavigate}
+          positionClass="relative shrink-0"
+        />
+      )}
 
       {toastMsg && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-3.5 py-2 rounded-full shadow-xl text-xs font-medium flex items-center gap-2 max-w-[90%] whitespace-nowrap">

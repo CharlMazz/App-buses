@@ -8,6 +8,7 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
+  Mic,
   Monitor,
   Plus,
   QrCode,
@@ -91,6 +92,7 @@ export function PassengerBottomNav({
     onUpdateUserPosition,
     onFocusMap,
     onTripSubmitted,
+    onOpenVoiceTrip,
     onToast,
   } = tripPlanner;
 
@@ -658,7 +660,7 @@ export function PassengerBottomNav({
                 </button>
               </div>
 
-              {/* Select Pin on Map Option */}
+              {/* Select Pin on Map & Voice Dictation Options */}
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
@@ -666,12 +668,25 @@ export function PassengerBottomNav({
                   className="flex-1 h-8 px-2.5 rounded-[8px] bg-teal-50/90 hover:bg-teal-100 text-[#0D9488] border border-teal-200/80 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <MapPin className="w-3.5 h-3.5 shrink-0" />
-                  <span>
+                  <span className="truncate">
                     {activeField === 'origin'
-                      ? 'Elegir recogida con pin en el mapa'
-                      : 'Elegir pin en el mapa'}
+                      ? 'Recogida con pin'
+                      : 'Pin en el mapa'}
                   </span>
                 </button>
+                {onOpenVoiceTrip && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeSearch();
+                      onOpenVoiceTrip();
+                    }}
+                    className="h-8 px-2.5 rounded-[8px] bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                    <span>Dictar</span>
+                  </button>
+                )}
               </div>
 
               <button

@@ -1,6 +1,6 @@
 {
   "name": "APP BUSES · BAQ",
   "description": "Prototipo funcional multimodal del sistema de transporte metropolitano de Barranquilla: mapa en vivo, billetera digital con ticket QR, consola de conductor y centro de control de flota.",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
