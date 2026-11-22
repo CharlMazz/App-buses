@@ -43,6 +43,7 @@ export interface TripPlannerState {
   onFocusMap: (pos: LatLng, zoom?: number) => void;
   onTripSubmitted: () => void;
   onOpenVoiceTrip?: () => void;
+  onStartTour?: () => void;
   onToast: (msg: string) => void;
 }
 

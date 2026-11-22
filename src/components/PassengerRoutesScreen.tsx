@@ -1458,6 +1458,7 @@ export function PassengerRoutesScreen({
           {onOpenVoiceTrip && (
             <button
               type="button"
+              data-tour="voice-dictation-fab"
               onClick={onOpenVoiceTrip}
               aria-label="Dictar origen y destino por voz"
               title="Dictar viaje por voz"
@@ -1705,6 +1706,7 @@ export function PassengerRoutesScreen({
               {onOpenVoiceTrip && (
                 <button
                   type="button"
+                  data-tour="voice-dictation-pill"
                   onClick={onOpenVoiceTrip}
                   aria-label="Dictar por voz dónde estoy y a dónde voy"
                   className="px-3.5 py-2 rounded-full bg-[#0D9488] hover:bg-[#0F766E] text-white border border-white/80 shadow-lg flex items-center gap-1.5 text-xs font-semibold active:scale-95 transition-all whitespace-nowrap cursor-pointer"

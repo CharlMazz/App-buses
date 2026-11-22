@@ -511,7 +511,7 @@ Reglas clave:
                   text: safeText,
                   speechMetadata: {
                     style:
-                      'Voz amable, clara y natural de asistente de transporte público en español colombiano',
+                      'Voz femenina cálida y natural de español latinoamericano (Colombia). Lee absolutamente todos los títulos, nombres propios, direcciones, empresas y códigos de ruta con pronunciación 100% en español latinoamericano, nunca en inglés.',
                   },
                 },
               ],
@@ -520,8 +520,9 @@ Reglas clave:
           config: {
             responseModalities: ['AUDIO'],
             speechConfig: {
+              languageCode: 'es-419',
               voiceConfig: {
-                prebuiltVoiceConfig: {voiceName: 'Kore'},
+                prebuiltVoiceConfig: {voiceName: 'Zephyr'},
               },
             },
           },

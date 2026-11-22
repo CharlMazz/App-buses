@@ -137,6 +137,7 @@ export function PassengerWalletScreen({
           <div className="md:col-span-5 space-y-4">
             {/* Digital Wallet Balance Card */}
             <section
+              data-tour="wallet-balance"
               aria-label="Saldo y Billetera Digital"
               className="bg-white rounded-[20px] p-4 shadow-sm border border-slate-200 space-y-3"
             >

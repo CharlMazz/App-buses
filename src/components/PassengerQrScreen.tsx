@@ -254,7 +254,7 @@ export function PassengerQrScreen({
             )}
 
             {/* Dynamic SVG QR Code */}
-            <div className="my-4 flex flex-col items-center">
+            <div data-tour="qr-ticket-box" className="my-4 flex flex-col items-center">
               <button
                 type="button"
                 onClick={() => handleRefreshQr()}
@@ -392,6 +392,7 @@ export function PassengerQrScreen({
           <div className="md:col-span-6 space-y-4">
             {/* Passenger Count Selector for Group Boarding */}
             <section
+              data-tour="qr-group-count"
               aria-label="Pasajes incluidos en el QR"
               className="bg-white rounded-[20px] p-4 shadow-sm border border-slate-200 space-y-3"
             >

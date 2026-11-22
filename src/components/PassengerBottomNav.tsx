@@ -5,6 +5,7 @@ import {
   ArrowUpDown,
   Bus,
   ChevronDown,
+  HelpCircle,
   Loader2,
   LocateFixed,
   MapPin,
@@ -936,6 +937,30 @@ export function PassengerBottomNav({
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400" />
               </button>
+
+              {tripPlanner.onStartTour && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileModal(false);
+                    tripPlanner.onStartTour?.();
+                  }}
+                  className="w-full text-left p-3 rounded-lg border border-teal-200 bg-teal-50/60 hover:bg-teal-50 flex items-center justify-between transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <HelpCircle className="w-5 h-5 text-[#0D9488]" />
+                    <div>
+                      <p className="font-semibold text-slate-900 text-sm">
+                        Ver tutorial interactivo
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Guía rápida de dictado por voz y billetera QR
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-[#0D9488]" />
+                </button>
+              )}
 
               <PWAInstallButton
                 variant="card"

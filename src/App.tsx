@@ -7,6 +7,7 @@ import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
 import {PassengerQrScreen} from './components/PassengerQrScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
+import {OnboardingTour, TOUR_STORAGE_KEY} from './components/OnboardingTour';
 import {VoiceTripModal} from './components/VoiceTripModal';
 import {
   speakVoiceConfirmation,
@@ -76,6 +77,7 @@ export default function App() {
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [voiceSummary, setVoiceSummary] = useState<VoiceTripSummary | null>(null);
   const [voicePlaybackStatus, setVoicePlaybackStatus] = useState<VoicePlaybackStatus>('idle');
+  const [tourOpen, setTourOpen] = useState(false);
   const [globalToast, setGlobalToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,6 +113,19 @@ export default function App() {
     const t = window.setTimeout(() => setGlobalToast(null), 3200);
     return () => window.clearTimeout(t);
   }, [globalToast]);
+
+  useEffect(() => {
+    if (getInitialScreen() !== 'rutas') return;
+    try {
+      if (window.localStorage.getItem(TOUR_STORAGE_KEY) === 'true') return;
+    } catch {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setTourOpen(true);
+    }, 550);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const navigateTo = useCallback((next: ScreenId) => {
     setScreen(next);
@@ -233,6 +248,12 @@ export default function App() {
       stopVoiceConfirmation(setVoicePlaybackStatus);
       unlockVoicePlayback();
       setVoiceModalOpen(true);
+    },
+    onStartTour: () => {
+      setQrModalOpen(false);
+      setVoiceModalOpen(false);
+      navigateTo('rutas');
+      setTourOpen(true);
     },
     onToast: setGlobalToast,
   };
@@ -362,6 +383,19 @@ export default function App() {
           onNavigate={navigateTo}
           onVoiceConfirmation={handleVoiceConfirmation}
           onClose={() => setVoiceModalOpen(false)}
+        />
+
+        {/* Interactive First-Time Onboarding Tooltip Tour */}
+        <OnboardingTour
+          isOpen={tourOpen && !voiceModalOpen && !qrModalOpen}
+          currentScreen={screen}
+          onNavigate={navigateTo}
+          onTryVoiceDictation={() => {
+            stopVoiceConfirmation(setVoicePlaybackStatus);
+            unlockVoicePlayback();
+            setVoiceModalOpen(true);
+          }}
+          onComplete={() => setTourOpen(false)}
         />
 
         {/* Floating Voice Confirmation Status & Replay Card */}
