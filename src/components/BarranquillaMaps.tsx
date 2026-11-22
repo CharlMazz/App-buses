@@ -915,9 +915,9 @@ export function BarranquillaPassengerMap({
           }
           if (minimalMap) return;
           const placeId = e.detail.placeId;
-          if (!placeId || !placesLib || !onSelectMapPoi) return;
+          if (!placeId || !onSelectMapPoi) return;
           e.stop();
-          void fetchPlaceDetailsById(placesLib, placeId).then((place) => {
+          void fetchPlaceDetailsById(placesLib ?? null, placeId).then((place) => {
             if (place) onSelectMapPoi(place);
           });
         }}

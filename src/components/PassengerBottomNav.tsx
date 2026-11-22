@@ -28,7 +28,9 @@ import {
 } from '../data/barranquillaTransit';
 import {
   resolvePlaceFromText,
+  resolveSuggestionToPlace,
   useAutocompleteSuggestions,
+  type PlaceSuggestionItem,
 } from '../hooks/useAutocompleteSuggestions';
 import type {LatLng, PlacePoint, ScreenId, TripPlannerState} from '../types/transit';
 import {PWAInstallButton} from './PWAInstallButton';
@@ -224,29 +226,16 @@ export function PassengerBottomNav({
     ]
   );
 
-  const handleSelectPlaceSuggestion = async (
-    suggestion: google.maps.places.AutocompleteSuggestion
-  ) => {
-    if (!placesLib || !suggestion.placePrediction || !activeField) return;
+  const handleSelectPlaceSuggestion = async (suggestion: PlaceSuggestionItem) => {
+    if (!activeField) return;
     const targetField = activeField;
     setIsResolvingPlace(true);
     try {
-      const place = suggestion.placePrediction.toPlace();
-      await place.fetchFields({
-        fields: ['displayName', 'formattedAddress', 'location'],
-      });
-      const loc = place.location;
-      if (loc) {
-        const position = {lat: loc.lat(), lng: loc.lng()};
-        const name =
-          place.displayName ??
-          suggestion.placePrediction.mainText?.text ??
-          suggestion.placePrediction.text.text;
-        const address =
-          place.formattedAddress ??
-          suggestion.placePrediction.secondaryText?.text ??
-          'Barranquilla, Atlántico';
-        applyPlacePoint({name, address, position}, targetField);
+      const resolved = await resolveSuggestionToPlace(placesLib ?? null, suggestion);
+      if (resolved) {
+        applyPlacePoint(resolved, targetField);
+      } else {
+        onToast('No se pudo obtener la ubicación de ese lugar');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -301,8 +290,7 @@ export function PassengerBottomNav({
         };
       }
 
-      if (!placesLib) return null;
-      return resolvePlaceFromText(placesLib, queryText, userPosition);
+      return resolvePlaceFromText(placesLib ?? null, queryText, userPosition);
     },
     [placesLib, userPosition]
   );
@@ -481,31 +469,29 @@ export function PassengerBottomNav({
                   </div>
                 )}
 
-                {placeSuggestions.map((suggestion, idx) => {
-                  const pred = suggestion.placePrediction;
-                  if (!pred) return null;
-                  const main = pred.mainText?.text ?? pred.text.text;
-                  const secondary = pred.secondaryText?.text ?? '';
-                  return (
-                    <button
-                      key={pred.placeId ?? `place-${idx}`}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => void handleSelectPlaceSuggestion(suggestion)}
-                      className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
-                        <MapPin className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-slate-900 truncate">{main}</p>
-                        {secondary && (
-                          <p className="text-[11px] text-slate-500 truncate">{secondary}</p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                {placeSuggestions.map((suggestion, idx) => (
+                  <button
+                    key={suggestion.placeId || `place-${idx}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => void handleSelectPlaceSuggestion(suggestion)}
+                    className="w-full px-3.5 py-2.5 text-left flex items-start gap-2.5 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="w-7 h-7 rounded-full bg-teal-50 text-[#0D9488] flex items-center justify-center shrink-0 mt-0.5">
+                      <MapPin className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-900 truncate">
+                        {suggestion.mainText}
+                      </p>
+                      {suggestion.secondaryText && (
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {suggestion.secondaryText}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                ))}
 
                 {!isSuggestionsLoading &&
                   !isResolvingPlace &&

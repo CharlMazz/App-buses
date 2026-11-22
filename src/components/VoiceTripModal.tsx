@@ -9,6 +9,7 @@ import {
   Mic,
   Navigation,
   RefreshCw,
+  Sparkles,
   Square,
   X,
 } from 'lucide-react';
@@ -17,7 +18,15 @@ import {
   TRANSIT_STATIONS,
   getDistanceMeters,
 } from '../data/barranquillaTransit';
-import {resolvePlaceFromText} from '../hooks/useAutocompleteSuggestions';
+import {COMPANY_BUS_ROUTES} from '../data/busRoutesCatalog';
+import {resolveNearbyPlace, resolvePlaceFromText} from '../hooks/useAutocompleteSuggestions';
+import {findTripRoutes} from '../utils/tripRouteMatcher';
+import {
+  buildVoiceTripConfirmation,
+  formatPlaceForConfirmation,
+  unlockVoicePlayback,
+  type VoiceTripSummary,
+} from '../utils/voiceConfirmation';
 import type {LatLng, PlacePoint, ScreenId, TripPlannerState} from '../types/transit';
 
 type ModalPhase = 'recording' | 'processing' | 'review';
@@ -37,6 +46,7 @@ interface VoiceTripModalProps {
   currentScreen: ScreenId;
   tripPlanner: TripPlannerState;
   onNavigate: (screen: ScreenId) => void;
+  onVoiceConfirmation?: (summary: VoiceTripSummary) => void;
   onClose: () => void;
 }
 
@@ -100,12 +110,14 @@ function getQuickCurrentPosition(fallback: LatLng): Promise<LatLng> {
 
 const MAX_RECORDING_SECONDS = 20;
 const BAR_COUNT = 18;
+const CLIENT_VOICE_TIMEOUT_MS = 28000;
 
 export function VoiceTripModal({
   isOpen,
   currentScreen,
   tripPlanner,
   onNavigate,
+  onVoiceConfirmation,
   onClose,
 }: VoiceTripModalProps) {
   const placesLib = useMapsLibrary('places');
@@ -118,6 +130,7 @@ export function VoiceTripModal({
 
   // Review / editable fallback state
   const [transcript, setTranscript] = useState('');
+  const [parsedTranscript, setParsedTranscript] = useState('');
   const [useGpsOrigin, setUseGpsOrigin] = useState(true);
   const [originInput, setOriginInput] = useState('');
   const [destInput, setDestInput] = useState('');
@@ -129,19 +142,40 @@ export function VoiceTripModal({
   const timerRef = useRef<number | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const cancelCaptureRef = useRef(false);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchTimeoutRef = useRef<number | null>(null);
+  const activeRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const wasOpenRef = useRef(false);
 
-  const {
-    userPosition,
-    setOriginMarker,
-    setOriginQuery,
-    setSelectedDestination,
-    setDestQuery,
-    onUpdateUserPosition,
-    onFocusMap,
-    onTripSubmitted,
-    onToast,
-  } = tripPlanner;
+  // Keep latest props in refs so parent re-renders never interrupt an active recording/query
+  const propsRef = useRef({
+    currentScreen,
+    tripPlanner,
+    onNavigate,
+    onVoiceConfirmation,
+    onClose,
+    placesLib,
+  });
+  propsRef.current = {
+    currentScreen,
+    tripPlanner,
+    onNavigate,
+    onVoiceConfirmation,
+    onClose,
+    placesLib,
+  };
+
+  const abortInFlightRequest = useCallback(() => {
+    if (fetchTimeoutRef.current !== null) {
+      window.clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort();
+      fetchAbortRef.current = null;
+    }
+  }, []);
 
   const cleanupAudioHardware = useCallback(() => {
     if (rafRef.current !== null) {
@@ -152,14 +186,21 @@ export function VoiceTripModal({
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {
-        // Ignore stop errors if stream already closed
+    const recorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+    if (recorder) {
+      // Detach handlers BEFORE stopping so async onstop from a canceled/restarted session never fires
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
+      if (recorder.state !== 'inactive') {
+        try {
+          recorder.stop();
+        } catch {
+          // Ignore stop errors if stream already closed
+        }
       }
     }
-    mediaRecorderRef.current = null;
 
     if (mediaStreamRef.current) {
       for (const track of mediaStreamRef.current.getTracks()) {
@@ -197,10 +238,9 @@ export function VoiceTripModal({
         };
       }
 
-      if (!placesLib) return null;
-      return resolvePlaceFromText(placesLib, cleaned, biasOrigin);
+      return resolvePlaceFromText(propsRef.current.placesLib ?? null, cleaned, biasOrigin);
     },
-    [placesLib]
+    []
   );
 
   const applyAndLaunchTrip = useCallback(
@@ -221,7 +261,16 @@ export function VoiceTripModal({
         needsClarification,
       } = opts;
 
+      const {
+        currentScreen: activeScreen,
+        tripPlanner: planner,
+        onNavigate: navigateFn,
+        onVoiceConfirmation: voiceConfirmFn,
+        onClose: closeFn,
+      } = propsRef.current;
+
       setTranscript(heardTranscript);
+      setParsedTranscript(heardTranscript);
       setUseGpsOrigin(useCurrentLocation || !originText);
       setOriginInput(originText ?? '');
       setDestInput(destinationText ?? '');
@@ -236,16 +285,42 @@ export function VoiceTripModal({
       }
 
       setPhase('processing');
-      setStatusLabel('Ubicando partida y destino en Barranquilla...');
+      setStatusLabel('Ubicando partida, destino y rutas en Barranquilla...');
 
       let resolvedOrigin: PlacePoint | null = null;
-      let activeStartPos = userPosition;
+      let resolvedGpsPlace: PlacePoint | null = null;
+      let activeStartPos = planner.userPosition;
 
       if (useCurrentLocation || !originText) {
-        activeStartPos = await getQuickCurrentPosition(userPosition);
-        onUpdateUserPosition(activeStartPos);
+        activeStartPos = await getQuickCurrentPosition(planner.userPosition);
+        if (!isMountedRef.current) return;
+        planner.onUpdateUserPosition(activeStartPos);
+
+        // Resolve readable street/sector for spoken confirmation of current GPS location
+        resolvedGpsPlace = await resolveNearbyPlace(
+          propsRef.current.placesLib ?? null,
+          activeStartPos
+        );
+        if (!isMountedRef.current) return;
+        if (!resolvedGpsPlace) {
+          let nearestStation: {name: string; subtitle: string; dist: number} | null = null;
+          for (const st of TRANSIT_STATIONS) {
+            const d = getDistanceMeters(activeStartPos, st.position);
+            if (d <= 350 && (!nearestStation || d < nearestStation.dist)) {
+              nearestStation = {name: st.name, subtitle: st.subtitle, dist: d};
+            }
+          }
+          if (nearestStation) {
+            resolvedGpsPlace = {
+              name: `cerca de ${nearestStation.name}`,
+              address: nearestStation.subtitle,
+              position: activeStartPos,
+            };
+          }
+        }
       } else {
-        resolvedOrigin = await resolvePlaceQuery(originText, userPosition);
+        resolvedOrigin = await resolvePlaceQuery(originText, planner.userPosition);
+        if (!isMountedRef.current) return;
         if (!resolvedOrigin) {
           setErrorMessage(
             `No logré ubicar el punto de partida «${originText}» en Barranquilla. Edítalo o usa tu ubicación GPS.`
@@ -257,6 +332,7 @@ export function VoiceTripModal({
       }
 
       const resolvedDest = await resolvePlaceQuery(destinationText, activeStartPos);
+      if (!isMountedRef.current) return;
       if (!resolvedDest) {
         setErrorMessage(
           `No logré ubicar el destino «${destinationText}» en Barranquilla. Ajusta el nombre o dirección abajo.`
@@ -266,41 +342,49 @@ export function VoiceTripModal({
       }
 
       if (useCurrentLocation || !resolvedOrigin) {
-        setOriginMarker(null);
-        setOriginQuery('Mi ubicación actual (GPS)');
+        planner.setOriginMarker(null);
+        planner.setOriginQuery('Mi ubicación actual (GPS)');
       } else {
-        setOriginMarker(resolvedOrigin);
-        setOriginQuery(resolvedOrigin.name);
+        planner.setOriginMarker(resolvedOrigin);
+        planner.setOriginQuery(resolvedOrigin.name);
       }
 
-      setSelectedDestination(resolvedDest);
-      setDestQuery(resolvedDest.name);
-      onFocusMap(resolvedDest.position, 15);
-      onTripSubmitted();
+      planner.setSelectedDestination(resolvedDest);
+      planner.setDestQuery(resolvedDest.name);
+      planner.onFocusMap(resolvedDest.position, 15);
+      planner.onTripSubmitted();
 
-      if (currentScreen !== 'rutas') {
-        onNavigate('rutas');
+      const matchResult = findTripRoutes(
+        COMPANY_BUS_ROUTES,
+        activeStartPos,
+        resolvedDest.position
+      );
+
+      const confirmedOriginLabel = formatPlaceForConfirmation(
+        resolvedOrigin ?? resolvedGpsPlace,
+        'tu ubicación actual en Carrera 46 con Calle 74, Barranquilla'
+      );
+      const confirmedDestLabel = formatPlaceForConfirmation(
+        resolvedDest,
+        destinationText
+      );
+
+      const voiceSummary = buildVoiceTripConfirmation({
+        originLabel: confirmedOriginLabel,
+        destinationLabel: confirmedDestLabel,
+        matchResult,
+      });
+
+      if (activeScreen !== 'rutas') {
+        navigateFn('rutas');
       }
 
-      const originLabel = resolvedOrigin?.name ?? 'tu ubicación';
-      onToast(`Rutas de ${originLabel} a ${resolvedDest.name}`);
-      onClose();
+      const originShort = resolvedOrigin?.name ?? resolvedGpsPlace?.name ?? 'tu ubicación';
+      planner.onToast(`Rutas de ${originShort} a ${resolvedDest.name}`);
+      voiceConfirmFn?.(voiceSummary);
+      closeFn();
     },
-    [
-      currentScreen,
-      onClose,
-      onFocusMap,
-      onNavigate,
-      onToast,
-      onTripSubmitted,
-      onUpdateUserPosition,
-      resolvePlaceQuery,
-      setDestQuery,
-      setOriginMarker,
-      setOriginQuery,
-      setSelectedDestination,
-      userPosition,
-    ]
+    [resolvePlaceQuery]
   );
 
   const sendToVoiceApi = useCallback(
@@ -312,6 +396,17 @@ export function VoiceTripModal({
         setPhase('review');
         return;
       }
+
+      abortInFlightRequest();
+      const runId = ++activeRunIdRef.current;
+      const controller = new AbortController();
+      fetchAbortRef.current = controller;
+      let timedOut = false;
+
+      fetchTimeoutRef.current = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, CLIENT_VOICE_TIMEOUT_MS);
 
       setPhase('processing');
       setErrorMessage(null);
@@ -326,15 +421,50 @@ export function VoiceTripModal({
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
 
-        const data = (await response.json()) as VoiceTripApiResponse;
+        if (fetchTimeoutRef.current !== null) {
+          window.clearTimeout(fetchTimeoutRef.current);
+          fetchTimeoutRef.current = null;
+        }
+        if (fetchAbortRef.current === controller) {
+          fetchAbortRef.current = null;
+        }
 
-        if (!isMountedRef.current) return;
+        if (!isMountedRef.current || runId !== activeRunIdRef.current) return;
+
+        const rawText = await response.text();
+        let data: VoiceTripApiResponse | null = null;
+        try {
+          data = rawText ? (JSON.parse(rawText) as VoiceTripApiResponse) : null;
+        } catch {
+          data = null;
+        }
 
         if (!response.ok) {
+          if (data?.error) {
+            setErrorMessage(data.error);
+          } else if (response.status === 404) {
+            setErrorMessage(
+              'El endpoint de voz (/api/voice-trip) no está disponible en este hosting estático. Escribe tu partida y destino abajo para buscar rutas.'
+            );
+          } else if (response.status === 502 || response.status === 504) {
+            setErrorMessage(
+              'El servidor de voz tardó demasiado en responder. Toca «Volver a dictar» o escribe tu destino abajo.'
+            );
+          } else {
+            setErrorMessage(
+              `No se pudo procesar tu solicitud de voz (HTTP ${response.status}). Intenta nuevamente.`
+            );
+          }
+          setPhase('review');
+          return;
+        }
+
+        if (!data) {
           setErrorMessage(
-            data.error ?? 'No se pudo procesar tu solicitud de voz. Intenta de nuevo.'
+            'La respuesta del servicio de voz llegó vacía o en formato inesperado. Intenta nuevamente.'
           );
           setPhase('review');
           return;
@@ -348,23 +478,44 @@ export function VoiceTripModal({
           clarificationMessage: data.clarificationMessage,
           needsClarification: data.needsClarification,
         });
-      } catch {
-        if (!isMountedRef.current) return;
+      } catch (err) {
+        if (fetchTimeoutRef.current !== null) {
+          window.clearTimeout(fetchTimeoutRef.current);
+          fetchTimeoutRef.current = null;
+        }
+        if (fetchAbortRef.current === controller) {
+          fetchAbortRef.current = null;
+        }
+        if (!isMountedRef.current || runId !== activeRunIdRef.current) return;
+
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          if (timedOut) {
+            setErrorMessage(
+              'Tiempo de espera agotado al interpretar tu voz. Toca «Volver a dictar» o escribe tu destino abajo.'
+            );
+            setPhase('review');
+          }
+          return;
+        }
+
         setErrorMessage(
           'Error de conexión al interpretar tu voz. Verifica tu red e intenta nuevamente.'
         );
         setPhase('review');
       }
     },
-    [applyAndLaunchTrip]
+    [abortInFlightRequest, applyAndLaunchTrip]
   );
 
   const startRecording = useCallback(async () => {
+    const runId = ++activeRunIdRef.current;
+    abortInFlightRequest();
     cleanupAudioHardware();
     cancelCaptureRef.current = false;
     chunksRef.current = [];
     setErrorMessage(null);
     setElapsedSec(0);
+    setLevels(Array(BAR_COUNT).fill(0.18));
     setPhase('recording');
     setStatusLabel('Escuchando... di dónde estás y a dónde vas');
 
@@ -397,40 +548,51 @@ export function VoiceTripModal({
         },
       });
 
-      if (!isMountedRef.current || cancelCaptureRef.current) {
+      if (
+        !isMountedRef.current ||
+        cancelCaptureRef.current ||
+        runId !== activeRunIdRef.current
+      ) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
       mediaStreamRef.current = stream;
 
-      // Real-time audio visualizer
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as {webkitAudioContext?: typeof AudioContext})
-          .webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        audioCtxRef.current = ctx;
-        const source = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
-        source.connect(analyser);
-        const dataArr = new Uint8Array(analyser.frequencyBinCount);
-
-        const updateMeter = () => {
-          if (!mediaStreamRef.current) return;
-          analyser.getByteFrequencyData(dataArr);
-          const nextBars: number[] = [];
-          const step = Math.max(1, Math.floor(dataArr.length / BAR_COUNT));
-          for (let i = 0; i < BAR_COUNT; i++) {
-            const val = dataArr[Math.min(dataArr.length - 1, i * step)] / 255;
-            nextBars.push(Math.max(0.14, Math.min(1, val * 1.35)));
+      // Real-time audio visualizer (non-fatal if mobile AudioContext blocks it)
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as {webkitAudioContext?: typeof AudioContext})
+            .webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          audioCtxRef.current = ctx;
+          if (ctx.state === 'suspended') {
+            void ctx.resume().catch(() => {});
           }
-          setLevels(nextBars);
+          const source = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 64;
+          source.connect(analyser);
+          const dataArr = new Uint8Array(analyser.frequencyBinCount);
+
+          const updateMeter = () => {
+            if (!mediaStreamRef.current || runId !== activeRunIdRef.current) return;
+            analyser.getByteFrequencyData(dataArr);
+            const nextBars: number[] = [];
+            const step = Math.max(1, Math.floor(dataArr.length / BAR_COUNT));
+            for (let i = 0; i < BAR_COUNT; i++) {
+              const val = dataArr[Math.min(dataArr.length - 1, i * step)] / 255;
+              nextBars.push(Math.max(0.14, Math.min(1, val * 1.35)));
+            }
+            setLevels(nextBars);
+            rafRef.current = window.requestAnimationFrame(updateMeter);
+          };
           rafRef.current = window.requestAnimationFrame(updateMeter);
-        };
-        rafRef.current = window.requestAnimationFrame(updateMeter);
+        }
+      } catch {
+        // Ignore visualizer failure on strict mobile browsers
       }
 
       const preferredMime = pickSupportedAudioMimeType();
@@ -441,9 +603,17 @@ export function VoiceTripModal({
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event: BlobEvent) => {
+        if (runId !== activeRunIdRef.current) return;
         if (event.data && event.data.size > 0) {
           chunksRef.current.push(event.data);
         }
+      };
+
+      recorder.onerror = () => {
+        if (runId !== activeRunIdRef.current || !isMountedRef.current) return;
+        cleanupAudioHardware();
+        setErrorMessage('Error al grabar audio del micrófono. Intenta de nuevo o escribe tu viaje.');
+        setPhase('review');
       };
 
       recorder.onstop = () => {
@@ -451,7 +621,13 @@ export function VoiceTripModal({
         const mimeType = recorder.mimeType || preferredMime || 'audio/webm';
         cleanupAudioHardware();
 
-        if (cancelCaptureRef.current || !isMountedRef.current) return;
+        if (
+          cancelCaptureRef.current ||
+          !isMountedRef.current ||
+          runId !== activeRunIdRef.current
+        ) {
+          return;
+        }
 
         if (capturedChunks.length === 0) {
           setErrorMessage('No se capturó audio. Intenta hablar de nuevo.');
@@ -467,14 +643,15 @@ export function VoiceTripModal({
         }
 
         void blobToBase64(audioBlob)
-          .then((audioBase64) =>
-            sendToVoiceApi({
+          .then((audioBase64) => {
+            if (runId !== activeRunIdRef.current || !isMountedRef.current) return;
+            return sendToVoiceApi({
               audioBase64,
               mimeType,
-            })
-          )
+            });
+          })
           .catch(() => {
-            if (!isMountedRef.current) return;
+            if (!isMountedRef.current || runId !== activeRunIdRef.current) return;
             setErrorMessage('No se pudo procesar el audio grabado.');
             setPhase('review');
           });
@@ -483,6 +660,7 @@ export function VoiceTripModal({
       recorder.start(250);
 
       timerRef.current = window.setInterval(() => {
+        if (runId !== activeRunIdRef.current) return;
         setElapsedSec((prev) => {
           const next = prev + 1;
           if (next >= MAX_RECORDING_SECONDS) {
@@ -495,7 +673,7 @@ export function VoiceTripModal({
       }, 1000);
     } catch (err) {
       cleanupAudioHardware();
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || runId !== activeRunIdRef.current) return;
       const errName = err instanceof DOMException ? err.name : '';
       if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
         setErrorMessage(
@@ -512,45 +690,58 @@ export function VoiceTripModal({
       }
       setPhase('review');
     }
-  }, [cleanupAudioHardware, sendToVoiceApi]);
+  }, [abortInFlightRequest, cleanupAudioHardware, sendToVoiceApi]);
+
+  const startRecordingRef = useRef(startRecording);
+  startRecordingRef.current = startRecording;
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      activeRunIdRef.current += 1;
       cancelCaptureRef.current = true;
+      abortInFlightRequest();
       cleanupAudioHardware();
     };
-  }, [cleanupAudioHardware]);
+  }, [abortInFlightRequest, cleanupAudioHardware]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
+      wasOpenRef.current = true;
       setTranscript('');
+      setParsedTranscript('');
       setOriginInput('');
       setDestInput('');
       setUseGpsOrigin(true);
       setErrorMessage(null);
-      void startRecording();
-    } else {
+      void startRecordingRef.current();
+    } else if (!isOpen && wasOpenRef.current) {
+      wasOpenRef.current = false;
+      activeRunIdRef.current += 1;
       cancelCaptureRef.current = true;
+      abortInFlightRequest();
       cleanupAudioHardware();
     }
-  }, [isOpen, startRecording, cleanupAudioHardware]);
+  }, [isOpen, abortInFlightRequest, cleanupAudioHardware]);
 
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        activeRunIdRef.current += 1;
         cancelCaptureRef.current = true;
+        abortInFlightRequest();
         cleanupAudioHardware();
-        onClose();
+        propsRef.current.onClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, cleanupAudioHardware, onClose]);
+  }, [isOpen, abortInFlightRequest, cleanupAudioHardware]);
 
   const handleStopAndSubmit = () => {
+    unlockVoicePlayback();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     } else {
@@ -559,21 +750,36 @@ export function VoiceTripModal({
   };
 
   const handleCancel = () => {
+    activeRunIdRef.current += 1;
     cancelCaptureRef.current = true;
+    abortInFlightRequest();
     cleanupAudioHardware();
-    onClose();
+    propsRef.current.onClose();
+  };
+
+  const handleReinterpretTranscript = async () => {
+    unlockVoicePlayback();
+    const transcriptClean = transcript.trim();
+    if (transcriptClean.length < 3) {
+      setErrorMessage('Escribe o dicta una frase más clara para interpretarla.');
+      return;
+    }
+    await sendToVoiceApi({transcript: transcriptClean});
   };
 
   const handleManualReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    unlockVoicePlayback();
     setErrorMessage(null);
 
     const destClean = destInput.trim();
     const origClean = originInput.trim();
     const transcriptClean = transcript.trim();
+    const transcriptEdited =
+      transcriptClean.length >= 3 && transcriptClean !== parsedTranscript.trim();
 
-    // If user typed a natural-language sentence in the transcript box without filling destination
-    if (!destClean && transcriptClean.length >= 3) {
+    // If user typed/edited a natural-language sentence and didn't specify a destination yet
+    if ((!destClean || transcriptEdited) && transcriptClean.length >= 3 && !destClean) {
       await sendToVoiceApi({transcript: transcriptClean});
       return;
     }
@@ -587,7 +793,8 @@ export function VoiceTripModal({
       originText: useGpsOrigin || !origClean ? null : origClean,
       useCurrentLocation: useGpsOrigin || !origClean,
       destinationText: destClean,
-      heardTranscript: transcriptClean || `${useGpsOrigin ? 'Mi ubicación' : origClean} → ${destClean}`,
+      heardTranscript:
+        transcriptClean || `${useGpsOrigin ? 'Mi ubicación' : origClean} → ${destClean}`,
       clarificationMessage: null,
       needsClarification: false,
     });
@@ -672,6 +879,7 @@ export function VoiceTripModal({
                 <button
                   type="button"
                   onClick={() => {
+                    activeRunIdRef.current += 1;
                     cancelCaptureRef.current = true;
                     cleanupAudioHardware();
                     setPhase('review');
@@ -718,12 +926,24 @@ export function VoiceTripModal({
               )}
 
               <div className="space-y-1">
-                <label
-                  htmlFor="voice-transcript-input"
-                  className="text-[11px] font-bold uppercase tracking-wide text-slate-500"
-                >
-                  Frase dictada (editable)
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor="voice-transcript-input"
+                    className="text-[11px] font-bold uppercase tracking-wide text-slate-500"
+                  >
+                    Frase dictada (editable)
+                  </label>
+                  {transcript.trim().length >= 3 && (
+                    <button
+                      type="button"
+                      onClick={() => void handleReinterpretTranscript()}
+                      className="text-[11px] font-semibold text-[#0D9488] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>Reinterpretar frase</span>
+                    </button>
+                  )}
+                </div>
                 <input
                   id="voice-transcript-input"
                   type="text"
@@ -792,7 +1012,10 @@ export function VoiceTripModal({
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => void startRecording()}
+                  onClick={() => {
+                    unlockVoicePlayback();
+                    void startRecording();
+                  }}
                   className="flex-1 h-10 rounded-[12px] bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />

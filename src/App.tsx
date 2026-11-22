@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {APIProvider} from '@vis.gl/react-google-maps';
+import {Loader2, Play, Volume2, VolumeX, X} from 'lucide-react';
 import {DriverCockpitScreen} from './components/DriverCockpitScreen';
 import {OfflineIndicator} from './components/OfflineIndicator';
 import {OperatorDashboardScreen} from './components/OperatorDashboardScreen';
@@ -7,6 +8,13 @@ import {PassengerQrScreen} from './components/PassengerQrScreen';
 import {PassengerRoutesScreen} from './components/PassengerRoutesScreen';
 import {PassengerWalletScreen} from './components/PassengerWalletScreen';
 import {VoiceTripModal} from './components/VoiceTripModal';
+import {
+  speakVoiceConfirmation,
+  stopVoiceConfirmation,
+  unlockVoicePlayback,
+  type VoicePlaybackStatus,
+  type VoiceTripSummary,
+} from './utils/voiceConfirmation';
 import {
   INITIAL_INCIDENTS,
   INITIAL_TRANSACTIONS,
@@ -66,7 +74,22 @@ export default function App() {
   const [selectedTicketRoute, setSelectedTicketRoute] = useState<SelectedTicketRoute | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [voiceSummary, setVoiceSummary] = useState<VoiceTripSummary | null>(null);
+  const [voicePlaybackStatus, setVoicePlaybackStatus] = useState<VoicePlaybackStatus>('idle');
   const [globalToast, setGlobalToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedDestination) {
+      stopVoiceConfirmation(setVoicePlaybackStatus);
+      setVoiceSummary(null);
+    }
+  }, [selectedDestination]);
+
+  useEffect(() => {
+    return () => {
+      stopVoiceConfirmation();
+    };
+  }, []);
 
   useEffect(() => {
     const onQuotaExceeded = () => setQuotaExceeded(true);
@@ -206,9 +229,18 @@ export default function App() {
     onUpdateUserPosition: setUserPosition,
     onFocusMap: handleFocusMap,
     onTripSubmitted: handleTripSubmitted,
-    onOpenVoiceTrip: () => setVoiceModalOpen(true),
+    onOpenVoiceTrip: () => {
+      stopVoiceConfirmation(setVoicePlaybackStatus);
+      unlockVoicePlayback();
+      setVoiceModalOpen(true);
+    },
     onToast: setGlobalToast,
   };
+
+  const handleVoiceConfirmation = useCallback((summary: VoiceTripSummary) => {
+    setVoiceSummary(summary);
+    void speakVoiceConfirmation(summary.spokenText, setVoicePlaybackStatus);
+  }, []);
 
   return (
     <APIProvider
@@ -328,8 +360,101 @@ export default function App() {
           currentScreen={screen}
           tripPlanner={tripPlanner}
           onNavigate={navigateTo}
+          onVoiceConfirmation={handleVoiceConfirmation}
           onClose={() => setVoiceModalOpen(false)}
         />
+
+        {/* Floating Voice Confirmation Status & Replay Card */}
+        {voiceSummary && screen === 'rutas' && !voiceModalOpen && !qrModalOpen && (
+          <aside
+            aria-live="polite"
+            aria-label="Confirmación por voz de tu viaje"
+            className="fixed top-14 left-2.5 right-20 sm:left-3 sm:right-auto sm:w-[340px] z-[35] bg-white/95 backdrop-blur-md rounded-[14px] shadow-xl border border-teal-200/90 p-2.5 space-y-1.5"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                    voicePlaybackStatus === 'speaking'
+                      ? 'bg-[#0D9488] text-white animate-pulse'
+                      : voicePlaybackStatus === 'loading'
+                      ? 'bg-teal-50 text-[#0D9488]'
+                      : voicePlaybackStatus === 'blocked'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-teal-50 text-[#0D9488]'
+                  }`}
+                >
+                  {voicePlaybackStatus === 'loading' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : voicePlaybackStatus === 'blocked' ? (
+                    <VolumeX className="w-3.5 h-3.5" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  )}
+                </span>
+                <span className="text-[11px] font-bold text-slate-900 truncate">
+                  {voicePlaybackStatus === 'loading'
+                    ? 'Generando confirmación de voz...'
+                    : voicePlaybackStatus === 'speaking'
+                    ? 'Confirmando viaje por voz...'
+                    : voicePlaybackStatus === 'blocked'
+                    ? 'Toca para escuchar confirmación'
+                    : 'Confirmación por voz'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                {voicePlaybackStatus === 'speaking' || voicePlaybackStatus === 'loading' ? (
+                  <button
+                    type="button"
+                    onClick={() => stopVoiceConfirmation(setVoicePlaybackStatus)}
+                    className="px-2 py-0.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10.5px] font-semibold cursor-pointer"
+                  >
+                    Silenciar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      unlockVoicePlayback();
+                      void speakVoiceConfirmation(
+                        voiceSummary.spokenText,
+                        setVoicePlaybackStatus
+                      );
+                    }}
+                    className="px-2 py-0.5 rounded-full bg-[#0D9488] hover:bg-[#0F766E] text-white text-[10.5px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>{voicePlaybackStatus === 'blocked' ? 'Escuchar' : 'Repetir'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopVoiceConfirmation(setVoicePlaybackStatus);
+                    setVoiceSummary(null);
+                  }}
+                  aria-label="Cerrar confirmación por voz"
+                  className="w-6 h-6 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="text-[11px] leading-snug text-slate-700 space-y-0.5 pl-8">
+              <p className="truncate">
+                <strong className="text-emerald-700">Partida:</strong>{' '}
+                {voiceSummary.originAddress}
+              </p>
+              <p className="truncate">
+                <strong className="text-[#0D9488]">Destino:</strong>{' '}
+                {voiceSummary.destinationAddress}
+              </p>
+              <p className="text-slate-600 line-clamp-2">{voiceSummary.routesHeadline}</p>
+            </div>
+          </aside>
+        )}
 
         {/* Cross-Screen Prototype Toast */}
         <div
