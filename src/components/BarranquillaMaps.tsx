@@ -284,7 +284,8 @@ function HtmlOverlayMarker({
     overlay.setMap(map);
     overlayRef.current = overlay;
 
-    const handleClick = () => {
+    const handleClick = (ev: MouseEvent) => {
+      ev.stopPropagation();
       onClickRef.current?.();
     };
     el.addEventListener('click', handleClick);
@@ -814,6 +815,7 @@ interface BarranquillaPassengerMapProps {
   showNearbyBuses?: boolean;
   nearbyBuses?: NearbyBusMarker[];
   routeBuses?: RouteFleetBusMarker[];
+  selectedBusKey?: string | null;
   signal: MapControlSignal | null;
   mapPickMode?: 'origin' | 'destination' | null;
   draftPickPosition?: LatLng | null;
@@ -822,7 +824,7 @@ interface BarranquillaPassengerMapProps {
   onBoundsChanged?: (bounds: MapBounds) => void;
   onSelectCatalogRoute?: (route: CompanyRouteItem) => void;
   onSelectStation: (station: TransitStation) => void;
-  onSelectBus: (routeCode: string) => void;
+  onSelectBus: (routeCode: 'T-01' | 'A-12') => void;
   onSelectNearbyBus?: (bus: NearbyBusMarker) => void;
   onSelectRouteBus?: (bus: RouteFleetBusMarker) => void;
   onSelectMapPoi?: (place: PlacePoint) => void;
@@ -845,6 +847,7 @@ export function BarranquillaPassengerMap({
   showNearbyBuses = false,
   nearbyBuses = [],
   routeBuses = [],
+  selectedBusKey = null,
   signal,
   mapPickMode = null,
   draftPickPosition = null,
@@ -994,7 +997,7 @@ export function BarranquillaPassengerMap({
           <MapItemMarker
             useOverlay={minimalMap}
             position={busT01Position}
-            zIndex={60}
+            zIndex={selectedBusKey === 'T-01' ? 92 : 60}
             onClick={() => {
               if (!isDraggingRef.current) onSelectBus('T-01');
             }}
@@ -1002,8 +1005,14 @@ export function BarranquillaPassengerMap({
           >
             <button
               type="button"
-              className={`px-2 py-1 rounded-full text-white shadow-lg border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
-                minimalMap ? 'bg-slate-900' : 'bg-[#2563EB]'
+              data-bus-marker="T-01"
+              aria-label="Bus B-304 ruta T-01, llega en 2 minutos"
+              className={`px-2 py-1 rounded-full text-white shadow-lg border-2 flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
+                selectedBusKey === 'T-01'
+                  ? 'bg-[#0D9488] border-white ring-2 ring-[#0D9488]/40 scale-110'
+                  : minimalMap
+                  ? 'bg-slate-900 border-white'
+                  : 'bg-[#2563EB] border-white'
               }`}
             >
               <Bus className="w-3.5 h-3.5" />
@@ -1018,7 +1027,7 @@ export function BarranquillaPassengerMap({
           <MapItemMarker
             useOverlay={minimalMap}
             position={busA12Position}
-            zIndex={50}
+            zIndex={selectedBusKey === 'A-12' ? 92 : 50}
             onClick={() => {
               if (!isDraggingRef.current) onSelectBus('A-12');
             }}
@@ -1026,8 +1035,14 @@ export function BarranquillaPassengerMap({
           >
             <button
               type="button"
-              className={`px-2 py-1 rounded-full text-white shadow-md border-2 border-white flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
-                minimalMap ? 'bg-slate-800' : 'bg-[#16A34A]'
+              data-bus-marker="A-12"
+              aria-label="Bus B-118 ruta A-12, llega en 6 minutos"
+              className={`px-2 py-1 rounded-full text-white shadow-md border-2 flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform focus:outline-none ${
+                selectedBusKey === 'A-12'
+                  ? 'bg-[#0D9488] border-white ring-2 ring-[#0D9488]/40 scale-110'
+                  : minimalMap
+                  ? 'bg-slate-800 border-white'
+                  : 'bg-[#16A34A] border-white'
               }`}
             >
               <Bus className="w-3 h-3" />
@@ -1038,38 +1053,60 @@ export function BarranquillaPassengerMap({
         )}
 
         {/* Compact Nearby Company Buses (Top 5 closest to avoid map clutter) */}
-        {visibleNearbyMarkers.map((bus) => (
-          <MapItemMarker
-            key={bus.id}
-            useOverlay={minimalMap}
-            position={bus.position}
-            zIndex={55}
-            onClick={() => {
-              if (!isDraggingRef.current) onSelectNearbyBus?.(bus);
-            }}
-            title={`${bus.company} · Ruta ${bus.code} (${bus.etaMinutes} min)`}
-          >
-            <button
-              type="button"
-              className="px-1.5 py-0.5 rounded-full bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 shadow-md border border-slate-300 flex items-center gap-1 cursor-pointer hover:scale-105 transition-all focus:outline-none"
+        {visibleNearbyMarkers.map((bus) => {
+          const isBusSelected = selectedBusKey === bus.id;
+          return (
+            <MapItemMarker
+              key={bus.id}
+              useOverlay={minimalMap}
+              position={bus.position}
+              zIndex={isBusSelected ? 92 : 55}
+              onClick={() => {
+                if (!isDraggingRef.current) onSelectNearbyBus?.(bus);
+              }}
+              title={`${bus.company} · Ruta ${bus.code} (${bus.etaMinutes} min)`}
             >
-              <Bus className={`w-3 h-3 ${minimalMap ? 'text-slate-700' : 'text-[#0D9488]'}`} />
-              <span className="font-headline text-[10px] font-bold whitespace-nowrap">
-                {bus.code}
-              </span>
-              <span
-                className={`font-mono text-[9px] font-bold ${
-                  minimalMap ? 'text-slate-600' : 'text-emerald-700'
+              <button
+                type="button"
+                data-bus-marker={bus.id}
+                aria-label={`Bus ${bus.code} de ${bus.company}, llega en ${bus.etaMinutes} minutos`}
+                className={`px-2 py-1 rounded-full shadow-md border flex items-center gap-1 cursor-pointer hover:scale-105 transition-all focus:outline-none ${
+                  isBusSelected
+                    ? 'bg-[#0D9488] text-white border-white ring-2 ring-[#0D9488]/40 scale-110'
+                    : 'bg-white/95 hover:bg-slate-900 hover:text-white text-slate-900 border-slate-300'
                 }`}
               >
-                {bus.etaMinutes}m
-              </span>
-            </button>
-          </MapItemMarker>
-        ))}
+                <Bus
+                  className={`w-3 h-3 ${
+                    isBusSelected
+                      ? 'text-white'
+                      : minimalMap
+                      ? 'text-slate-700'
+                      : 'text-[#0D9488]'
+                  }`}
+                />
+                <span className="font-headline text-[10px] font-bold whitespace-nowrap">
+                  {bus.code}
+                </span>
+                <span
+                  className={`font-mono text-[9px] font-bold ${
+                    isBusSelected
+                      ? 'text-teal-100'
+                      : minimalMap
+                      ? 'text-slate-600'
+                      : 'text-emerald-700'
+                  }`}
+                >
+                  {bus.etaMinutes}m
+                </span>
+              </button>
+            </MapItemMarker>
+          );
+        })}
 
         {/* Live Buses Traveling Along Filtered / Selected Routes (3 to 6 buses per route) */}
         {routeBuses.map((bus) => {
+          const isBusSelected = selectedBusKey === bus.id;
           const dirDotColor =
             bus.direction === 'regreso'
               ? 'bg-[#E74C3C]'
@@ -1088,7 +1125,7 @@ export function BarranquillaPassengerMap({
               key={bus.id}
               useOverlay={minimalMap}
               position={bus.position}
-              zIndex={65}
+              zIndex={isBusSelected ? 92 : 65}
               onClick={() => {
                 if (!isDraggingRef.current) onSelectRouteBus?.(bus);
               }}
@@ -1096,7 +1133,13 @@ export function BarranquillaPassengerMap({
             >
               <button
                 type="button"
-                className="px-1.5 py-0.5 rounded-full bg-slate-900/95 hover:bg-[#0D9488] text-white shadow-lg border-[1.5px] border-white flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform focus:outline-none"
+                data-bus-marker={bus.id}
+                aria-label={`Bus número ${bus.unitNumber} ruta ${bus.code} de ${bus.company}, ${dirLabel}`}
+                className={`px-2 py-1 rounded-full text-white shadow-lg border-[1.5px] border-white flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform focus:outline-none ${
+                  isBusSelected
+                    ? 'bg-[#0D9488] ring-2 ring-[#0D9488]/40 scale-110'
+                    : 'bg-slate-900/95 hover:bg-[#0D9488]'
+                }`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${dirDotColor} shrink-0`} />
                 <Bus className="w-3 h-3 text-teal-300 shrink-0" />

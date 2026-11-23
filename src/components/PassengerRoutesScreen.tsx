@@ -63,8 +63,13 @@ import {
 } from './BarranquillaMaps';
 import {PassengerBottomNav} from './PassengerBottomNav';
 import {PWAInstallButton} from './PWAInstallButton';
+import {FloatingBusPanel} from './FloatingBusPanel';
 import {findTripRoutes} from '../utils/tripRouteMatcher';
 import {buildSimulatedRouteFleet} from '../utils/routeFleetSimulator';
+import {
+  buildSelectedBusDetails,
+  type SelectedBusTarget,
+} from '../utils/busTelemetry';
 
 const COMPANY_BADGE_CLASSES: Record<string, string> = {
   Coolitoral: 'bg-cyan-600',
@@ -216,6 +221,7 @@ export function PassengerRoutesScreen({
   const [drawerTab, setDrawerTab] = useState<'trip' | 'nearby' | 'filtered'>('nearby');
   const [searchOpenNonce, setSearchOpenNonce] = useState(0);
   const [selectedStation, setSelectedStation] = useState<TransitStation | null>(null);
+  const [selectedBusTarget, setSelectedBusTarget] = useState<SelectedBusTarget | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Map pin picker draft state
@@ -231,6 +237,17 @@ export function PassengerRoutesScreen({
     const t = window.setTimeout(() => setToastMsg(null), 2800);
     return () => window.clearTimeout(t);
   }, [toastMsg]);
+
+  useEffect(() => {
+    if (!selectedBusTarget) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedBusTarget(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedBusTarget]);
 
   const triggerSignal = useCallback(
     (
@@ -349,6 +366,7 @@ export function PassengerRoutesScreen({
       return;
     }
     setPanelOpen(false);
+    setSelectedBusTarget(null);
   }, [routesSearchOpen]);
 
   const resolveCoordinateToPlace = useCallback(
@@ -427,6 +445,7 @@ export function PassengerRoutesScreen({
     setRoutesSearchOpen(false);
     setShowRouteTextDetails(false);
     setSelectedStation(null);
+    setSelectedBusTarget(null);
 
     const initialPos =
       mapPickTarget === 'origin'
@@ -750,13 +769,15 @@ export function PassengerRoutesScreen({
     }));
   }, [nearbyCompanyRoutes]);
 
-  const showNearbyBusesOnMap = panelOpen && drawerTab === 'nearby';
-
   const activeFleetRoutes = useMemo(() => {
     if (selectedRoute) return [selectedRoute];
     if (filteredRoutes.length > 0) return filteredRoutes;
     return [];
   }, [selectedRoute, filteredRoutes]);
+
+  const showNearbyBusesOnMap =
+    !mapPickTarget &&
+    (activeFleetRoutes.length === 0 || (panelOpen && drawerTab === 'nearby'));
 
   useEffect(() => {
     if (activeFleetRoutes.length === 0) return;
@@ -775,6 +796,30 @@ export function PassengerRoutesScreen({
       routeDirectionMode
     );
   }, [activeFleetRoutes, fleetSeconds, selectedRoute?.id, routeDirectionMode]);
+
+  const selectedBusDetails = useMemo(
+    () =>
+      buildSelectedBusDetails({
+        target: selectedBusTarget,
+        activeOrigin,
+        originName: originMarker?.name ?? null,
+        tick,
+        busT01Position,
+        busA12Position,
+        nearbyCompanyRoutes,
+        routeBuses,
+      }),
+    [
+      selectedBusTarget,
+      activeOrigin,
+      originMarker?.name,
+      tick,
+      busT01Position,
+      busA12Position,
+      nearbyCompanyRoutes,
+      routeBuses,
+    ]
+  );
 
   const totalNearbyCount = nearbyTransmetroRoutes.length + nearbyCompanyRoutes.length;
 
@@ -1252,13 +1297,14 @@ export function PassengerRoutesScreen({
           userPosition={userPosition}
           originMarker={originMarker}
           selectedDestination={selectedDestination}
-          selectedCompanyRoute={selectedRoute}
+          selectedCompanyRoute={selectedRoute ?? selectedBusDetails?.routeRef ?? null}
           routeDirectionMode={routeDirectionMode}
           catalogRoutes={filteredRoutes}
           userRadiusMeters={radiusFilter}
           showNearbyBuses={showNearbyBusesOnMap}
           nearbyBuses={nearbyBusMarkers}
           routeBuses={routeBuses}
+          selectedBusKey={selectedBusDetails?.key ?? null}
           signal={mapSignal}
           mapPickMode={mapPickTarget}
           draftPickPosition={draftPickPosition}
@@ -1267,39 +1313,31 @@ export function PassengerRoutesScreen({
           onSelectCatalogRoute={handleSelectRoute}
           onSelectStation={(st) => setSelectedStation(st)}
           onSelectBus={(code) => {
-            if (code === 'T-01') {
-              triggerSignal('focus', busT01Position, 16);
-              setToastMsg('Bus #B-304 (T-01) • Llega en 2 min • 42% Ocupación');
-            } else {
-              triggerSignal('focus', busA12Position, 16);
-              setToastMsg('Bus #B-118 (A-12) • Llega en 6 min • 18% Ocupación');
-            }
+            const targetPos = code === 'T-01' ? busT01Position : busA12Position;
+            setPanelOpen(false);
+            setRoutesSearchOpen(false);
+            setSelectedBusTarget({kind: 'transmetro', code});
+            triggerSignal('focus', targetPos, 16);
           }}
           onSelectNearbyBus={(bus) => {
-            const found = COMPANY_BUS_ROUTES.find((r) => `bus-${r.id}` === bus.id);
-            if (found) handleSelectRoute(found);
-            else triggerSignal('focus', bus.position, 15);
-            setToastMsg(
-              `${bus.company} (${bus.code}) • a ${formatDistanceLabel(bus.distanceMeters)} • ${bus.etaMinutes} min`
-            );
+            const routeId = bus.id.replace(/^bus-/, '');
+            setPanelOpen(false);
+            setRoutesSearchOpen(false);
+            setSelectedBusTarget({kind: 'nearby', routeId});
+            triggerSignal('focus', bus.position, 15);
           }}
           onSelectRouteBus={(bus) => {
-            const found = COMPANY_BUS_ROUTES.find((r) => r.id === bus.routeId);
-            if (found && selectedRoute?.id !== found.id) {
-              setSelectedRoute(found);
-              setRouteDirectionMode('both');
-              setShowRouteTextDetails(false);
-            }
+            setPanelOpen(false);
+            setRoutesSearchOpen(false);
+            setSelectedBusTarget({
+              kind: 'route',
+              busId: bus.id,
+              routeId: bus.routeId,
+              unitNumber: bus.unitNumber,
+              totalUnits: bus.totalUnits,
+              direction: bus.direction,
+            });
             triggerSignal('focus', bus.position, 15);
-            const dirLabel =
-              bus.direction === 'regreso'
-                ? 'Sentido Vuelta'
-                : bus.direction === 'ida'
-                ? 'Sentido Ida'
-                : 'En recorrido';
-            setToastMsg(
-              `${bus.company} (${bus.code}) · Bus #${bus.unitNumber}/${bus.totalUnits} · ${dirLabel}`
-            );
           }}
           onSelectMapPoi={(place) => {
             applyDestinationFromPlaces(place);
@@ -1499,9 +1537,45 @@ export function PassengerRoutesScreen({
           </button>
         </aside>
 
-        {/* Clickable trigger area at bottom of map: Selected Route card (replaces button when route selected) or Buses/Rutas pill */}
+        {/* Clickable trigger area / Floating Bus Detail Panel at bottom of map */}
         {!panelOpen && !routesSearchOpen && !mapPickTarget && (
-          selectedRoute ? (
+          selectedBusDetails ? (
+            <FloatingBusPanel
+              bus={selectedBusDetails}
+              companyBadgeClass={getCompanyBadgeClass(selectedBusDetails.company)}
+              isRouteActive={Boolean(
+                selectedRoute &&
+                  selectedBusDetails.routeRef &&
+                  selectedRoute.id === selectedBusDetails.routeRef.id
+              )}
+              onFocusBus={() =>
+                triggerSignal('fitBounds', selectedBusDetails.position, 16, [
+                  activeOrigin,
+                  selectedBusDetails.position,
+                ])
+              }
+              onViewRoute={() => {
+                if (selectedBusDetails.routeRef) {
+                  handleSelectRoute(selectedBusDetails.routeRef);
+                  setSelectedBusTarget(null);
+                }
+              }}
+              onBuyTicket={() => {
+                if (onBuyRouteTicket) {
+                  onBuyRouteTicket({
+                    id: selectedBusDetails.routeRef?.id ?? selectedBusDetails.routeCode,
+                    code: selectedBusDetails.routeCode,
+                    company: selectedBusDetails.company,
+                    name: selectedBusDetails.routeName,
+                    fareCop: selectedBusDetails.fareCop,
+                  });
+                } else {
+                  onNavigate('qr');
+                }
+              }}
+              onClose={() => setSelectedBusTarget(null)}
+            />
+          ) : selectedRoute ? (
             <div
               role="button"
               tabIndex={0}
@@ -2126,8 +2200,11 @@ export function PassengerRoutesScreen({
                         key={route.id}
                         onClick={() => {
                           setPanelOpen(false);
+                          setSelectedBusTarget({
+                            kind: 'transmetro',
+                            code: route.code === 'T-01' ? 'T-01' : 'A-12',
+                          });
                           triggerSignal('focus', route.busPos, 16);
-                          setToastMsg(`Siguiendo ${route.code} (${route.busId}) en tiempo real`);
                         }}
                         className="p-3 rounded-[14px] bg-slate-50 border border-slate-200 hover:border-[#0D9488] transition-all cursor-pointer"
                       >
@@ -2186,14 +2263,9 @@ export function PassengerRoutesScreen({
                       <article
                         key={route.id}
                         onClick={() => {
-                          setSelectedRoute(route);
-                          setRouteDirectionMode('both');
-                          setShowRouteTextDetails(false);
                           setPanelOpen(false);
+                          setSelectedBusTarget({kind: 'nearby', routeId: route.id});
                           triggerSignal('fitBounds', liveBusPos, 15, [activeOrigin, liveBusPos]);
-                          setToastMsg(
-                            `${route.company} · ${route.code} a ${formatDistanceLabel(distanceMeters)}`
-                          );
                         }}
                         className={`group p-3 rounded-[14px] border transition-all cursor-pointer ${
                           isSelected
